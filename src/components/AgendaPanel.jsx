@@ -50,7 +50,7 @@ function pad2(n) { return String(n).padStart(2, '0'); }
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedUsers, setSelectedUsers] = useState([]);
-    const [activeApt, setActiveApt] = useState(null);
+    const [activeAptData, setActiveAptData] = useState(null);
     const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -323,7 +323,15 @@ export default function AgendaPanel() {
                                                             title={`${apt._clientName ? apt._clientName + '\n' : ''}${apt._objet}\n${apt._userName}\n${startStr} → ${endStr}`}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                setActiveApt(activeApt === aptId ? null : aptId);
+                                                                setActiveAptData(prev => prev?.id === aptId ? null : {
+                                                                    id: aptId,
+                                                                    clientName: apt._clientName,
+                                                                    objet: apt._objet,
+                                                                    userName: apt._userName,
+                                                                    color: apt._color,
+                                                                    startStr,
+                                                                    endStr,
+                                                                });
                                                             }}
                                                         >
                                                             <div className="agenda-timeline__apt-time">{startStr}</div>
@@ -332,14 +340,6 @@ export default function AgendaPanel() {
                                                             {selectedUsers.length > 1 && (
                                                                 <div className="agenda-timeline__apt-user" style={{ color: apt._color }}>{apt._userName}</div>
                                                             )}
-                                                            {activeApt === aptId && (
-                                                                <div className="agenda-timeline__apt-popup">
-                                                                    <div className="agenda-timeline__apt-popup-time">{startStr} → {endStr}</div>
-                                                                    {apt._clientName && <div className="agenda-timeline__apt-popup-client">{apt._clientName}</div>}
-                                                                    <div className="agenda-timeline__apt-popup-objet">{apt._objet}</div>
-                                                                    <div className="agenda-timeline__apt-popup-user" style={{ color: apt._color }}>{apt._userName}</div>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     );
                                                 })}
@@ -347,6 +347,26 @@ export default function AgendaPanel() {
                                         </div>
                                     );
                                 })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Fixed bottom sheet for RDV details (mobile-friendly) */}
+                    {activeAptData && (
+                        <div className="agenda-detail-overlay" onClick={() => setActiveAptData(null)}>
+                            <div className="agenda-detail-sheet" onClick={(e) => e.stopPropagation()}>
+                                <div className="agenda-detail-sheet__header">
+                                    <div className="agenda-detail-sheet__time">{activeAptData.startStr} → {activeAptData.endStr}</div>
+                                    <button className="agenda-detail-sheet__close" onClick={() => setActiveAptData(null)}>✕</button>
+                                </div>
+                                {activeAptData.clientName && (
+                                    <div className="agenda-detail-sheet__client">{activeAptData.clientName}</div>
+                                )}
+                                <div className="agenda-detail-sheet__objet">{activeAptData.objet}</div>
+                                <div className="agenda-detail-sheet__user" style={{ color: activeAptData.color }}>
+                                    <span className="agenda-detail-sheet__dot" style={{ background: activeAptData.color }} />
+                                    {activeAptData.userName}
+                                </div>
                             </div>
                         </div>
                     )}
