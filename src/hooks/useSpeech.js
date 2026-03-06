@@ -5,6 +5,7 @@ export function useSpeechRecognition() {
     const [transcript, setTranscript] = useState('');
     const [interimTranscript, setInterimTranscript] = useState('');
     const recognitionRef = useRef(null);
+    const finalTranscriptRef = useRef('');
 
     const startListening = useCallback(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -13,37 +14,49 @@ export function useSpeechRecognition() {
             return;
         }
 
+        // Reset
+        finalTranscriptRef.current = '';
+        setTranscript('');
+        setInterimTranscript('');
+
         const recognition = new SpeechRecognition();
         recognition.lang = 'fr-FR';
-        recognition.continuous = true;
+        recognition.continuous = false;  // Single utterance — stops automatically when user pauses
         recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
 
         recognition.onstart = () => {
             setIsListening(true);
-            setTranscript('');
-            setInterimTranscript('');
         };
 
         recognition.onresult = (event) => {
-            let finalText = '';
-            let interimText = '';
+            let final = '';
+            let interim = '';
 
-            for (let i = 0; i < event.results.length; i++) {
+            for (let i = event.resultIndex; i < event.results.length; i++) {
                 const result = event.results[i];
                 if (result.isFinal) {
-                    finalText += result[0].transcript;
+                    final += result[0].transcript;
                 } else {
-                    interimText += result[0].transcript;
+                    interim = result[0].transcript;  // Only keep the latest interim, don't accumulate
                 }
             }
 
-            setTranscript(finalText);
-            setInterimTranscript(interimText);
+            if (final) {
+                finalTranscriptRef.current += final;
+                setTranscript(finalTranscriptRef.current);
+                setInterimTranscript('');
+            } else {
+                setInterimTranscript(interim);
+            }
         };
 
         recognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
-            setIsListening(false);
+            // Don't stop for "no-speech" — user just hasn't started talking yet
+            if (event.error !== 'no-speech') {
+                setIsListening(false);
+            }
         };
 
         recognition.onend = () => {
@@ -71,7 +84,8 @@ export function useSpeechRecognition() {
     }, [isListening, startListening, stopListening]);
 
     const getFinalTranscript = useCallback(() => {
-        const result = (transcript + ' ' + interimTranscript).trim();
+        const result = finalTranscriptRef.current || (transcript + ' ' + interimTranscript).trim();
+        finalTranscriptRef.current = '';
         setTranscript('');
         setInterimTranscript('');
         return result;
@@ -81,7 +95,7 @@ export function useSpeechRecognition() {
         isListening,
         transcript,
         interimTranscript,
-        currentText: (transcript + ' ' + interimTranscript).trim(),
+        currentText: (transcript ? transcript + ' ' : '') + interimTranscript,
         toggleListening,
         stopListening,
         getFinalTranscript,
