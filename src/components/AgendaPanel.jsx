@@ -50,6 +50,7 @@ function pad2(n) { return String(n).padStart(2, '0'); }
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedUsers, setSelectedUsers] = useState([]);
+    const [activeApt, setActiveApt] = useState(null);
     const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -208,7 +209,7 @@ export default function AgendaPanel() {
     return (
         <div className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''}`}>
             <button className="agenda-panel__toggle" onClick={() => setIsExpanded(!isExpanded)}>
-                <span>Agenda</span>
+                <span>Agendas</span>
                 <span className={`agenda-panel__arrow ${isExpanded ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
                 {selectedUsers.length > 0 && !isExpanded && (
                     <span className="agenda-panel__badge">{selectedUsers.length}</span>
@@ -306,9 +307,10 @@ export default function AgendaPanel() {
                                                     const leftPct = col * widthPct;
                                                     const startStr = `${pad2(apt._start.getHours())}:${pad2(apt._start.getMinutes())}`;
                                                     const endStr = `${pad2(apt._end.getHours())}:${pad2(apt._end.getMinutes())}`;
+                                                    const aptId = apt.id || `${di}-${ai}`;
                                                     return (
                                                         <div
-                                                            key={apt.id || ai}
+                                                            key={aptId}
                                                             className="agenda-timeline__apt"
                                                             style={{
                                                                 top: style.top,
@@ -319,12 +321,24 @@ export default function AgendaPanel() {
                                                                 borderLeftColor: apt._color,
                                                             }}
                                                             title={`${apt._clientName ? apt._clientName + '\n' : ''}${apt._objet}\n${apt._userName}\n${startStr} → ${endStr}`}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveApt(activeApt === aptId ? null : aptId);
+                                                            }}
                                                         >
                                                             <div className="agenda-timeline__apt-time">{startStr}</div>
                                                             {apt._clientName && <div className="agenda-timeline__apt-client">{apt._clientName}</div>}
                                                             <div className="agenda-timeline__apt-title">{apt._objet}</div>
                                                             {selectedUsers.length > 1 && (
                                                                 <div className="agenda-timeline__apt-user" style={{ color: apt._color }}>{apt._userName}</div>
+                                                            )}
+                                                            {activeApt === aptId && (
+                                                                <div className="agenda-timeline__apt-popup">
+                                                                    <div className="agenda-timeline__apt-popup-time">{startStr} → {endStr}</div>
+                                                                    {apt._clientName && <div className="agenda-timeline__apt-popup-client">{apt._clientName}</div>}
+                                                                    <div className="agenda-timeline__apt-popup-objet">{apt._objet}</div>
+                                                                    <div className="agenda-timeline__apt-popup-user" style={{ color: apt._color }}>{apt._userName}</div>
+                                                                </div>
                                                             )}
                                                         </div>
                                                     );
