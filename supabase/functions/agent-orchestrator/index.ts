@@ -1158,14 +1158,21 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
     if (depth > 5) return { type: "error", message: "Trop d'étapes. Reformulez votre demande." };
 
     const candidate = geminiResult?.candidates?.[0];
-    if (!candidate?.content?.parts) {
-        const blockReason = geminiResult?.candidates?.[0]?.finishReason;
-        const promptFeedback = geminiResult?.promptFeedback;
-        console.error("Unexpected Gemini response:", JSON.stringify(geminiResult).substring(0, 500));
+    const allParts = candidate?.content?.parts || [];
 
-        // Retry once on STOP without content (intermittent Gemini issue)
-        if (blockReason === "STOP" && depth === 0) {
-            console.log("Retrying after empty STOP response...");
+    // Filter to only actionable parts (text or functionCall), ignoring thought parts
+    const actionableParts = allParts.filter((p: any) => p.text || p.functionCall);
+
+    // If no actionable parts, retry
+    if (actionableParts.length === 0) {
+        const blockReason = candidate?.finishReason;
+        const hasThoughts = allParts.some((p: any) => p.thought);
+        console.error(`No actionable parts. finishReason=${blockReason}, hasThoughts=${hasThoughts}, totalParts=${allParts.length}`);
+        console.error("Raw response (truncated):", JSON.stringify(geminiResult).substring(0, 500));
+
+        // Retry on STOP with no actionable content (thinking mode or intermittent issue)
+        if (depth < 2) {
+            console.log(`Retrying (attempt ${depth + 1})...`);
             try {
                 const retryResult = await callGemini(messages, TOOLS);
                 return processGeminiResponse(retryResult, messages, depth + 1);
@@ -1177,8 +1184,8 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
         return { type: "error", message: `Réponse inattendue du modèle. ${blockReason ? `(${blockReason})` : 'Réessayez.'}` };
     }
 
-    const functionCalls = candidate.content.parts.filter((p: any) => p.functionCall);
-    const textParts = candidate.content.parts.filter((p: any) => p.text);
+    const functionCalls = actionableParts.filter((p: any) => p.functionCall);
+    const textParts = actionableParts.filter((p: any) => p.text);
 
     console.log(`processGeminiResponse depth=${depth}: ${functionCalls.length} function calls, ${textParts.length} text parts`);
     if (functionCalls.length > 0) {
