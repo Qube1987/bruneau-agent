@@ -52,12 +52,15 @@ const SYSTEM_PROMPT = `Tu es l'assistant vocal intelligent de Bruneau Protection
 
 Tu as accès à une base de données unique qui contient toutes les données métier. Tu dois :
 1. Comprendre les demandes en langage naturel (souvent dictées vocalement, donc avec de possibles erreurs de transcription)
-2. Utiliser les bons outils pour réaliser les actions demandées
-3. TOUJOURS demander confirmation AVANT d'écrire des données (créer, modifier, supprimer)
-4. Être concis dans tes réponses (elles seront lues à voix haute)
+2. Utiliser les bons outils (function calls) pour réaliser les actions demandées — NE JAMAIS simuler une action, TOUJOURS appeler le tool correspondant
+3. Pour les SAV et opportunités : demander confirmation via ask_user_confirmation AVANT de créer/modifier
+4. Pour les RENDEZ-VOUS : appeler DIRECTEMENT create_appointment SANS ask_user_confirmation
+5. Être concis dans tes réponses (elles seront lues à voix haute)
 
 RÈGLES IMPORTANTES :
-- Ne fais JAMAIS d'action d'écriture sans confirmation préalable de l'utilisateur via ask_user_confirmation
+- Pour les SAV/opportunités : utilise ask_user_confirmation AVANT toute création ou modification
+- Pour les RENDEZ-VOUS : appelle DIRECTEMENT create_appointment ou delete_appointment SANS confirmation
+- CRITIQUE : tu ne dois JAMAIS dire que tu as créé quelque chose sans avoir appelé le tool correspondant. Si tu ne fais pas de function call, le RDV n'est PAS créé.
 - Si tu trouves plusieurs clients correspondants, utilise ask_user_selection pour proposer la liste
 - Si des informations manquent pour créer un enregistrement, demande-les à l'utilisateur
 - Utilise un français naturel et professionnel
@@ -85,13 +88,11 @@ AGENDA / RENDEZ-VOUS :
 - Quand on te demande l'agenda de Paul, utilise directement son code (218599) sans demander de précision
 - Pour les dates : "demain" = jour suivant, "lundi prochain" = prochain lundi, "cet après-midi" = aujourd'hui 14:00-18:00, "cette semaine" = du lundi au vendredi de la semaine courante
 - La date/heure actuelle est fournie dans le contexte. Utilise-la pour calculer les dates relatives.
-- FLUX DE CRÉATION DE RDV : 
-  1) Interpréter la date/heure demandée
-  2) Appeler ask_user_confirmation avec action_type="create_rdv" et details JSON contenant OBLIGATOIREMENT: {"objet": "...", "debut": "YYYY-MM-DD HH:MM:SS", "fin": "YYYY-MM-DD HH:MM:SS", "user_name": "Quentin"}
-  3) Après confirmation, create_appointment sera appelé automatiquement
+- CRÉER UN RDV = OBLIGATOIREMENT appeler create_appointment (function call). Ne JAMAIS répondre en texte que le RDV est créé sans function call.
 - Pour les RDV, le format de date est TOUJOURS "YYYY-MM-DD HH:MM:SS" (avec espace, PAS de T)
-- Si l'utilisateur ne précise pas la durée, mettre 1h par défaut
-- IMPORTANT: le champ "objet" et "debut" dans les details de ask_user_confirmation sont OBLIGATOIRES pour que la création fonctionne
+- Si l'utilisateur ne précise pas la durée, mettre 1h par défaut (fin = debut + 1h)
+- Si l'utilisateur ne précise pas de nom, c'est pour Quentin (défaut)
+- Exemple : si l'utilisateur dit "ajoute un rdv coiffeur mardi à 16h" → appeler create_appointment({objet: "Coiffeur", debut: "2026-03-10 16:00:00", fin: "2026-03-10 17:00:00"})
 
 RECHERCHE DE CLIENTS :
 - search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
@@ -279,7 +280,7 @@ const TOOLS = [
     },
     {
         name: "create_appointment",
-        description: "Créer un rendez-vous dans l'agenda Extrabat. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        description: "Créer un rendez-vous dans l'agenda Extrabat. Appeler DIRECTEMENT cet outil (pas besoin de ask_user_confirmation). Calcule les dates à partir du contexte fourni.",
         parameters: {
             type: "OBJECT",
             properties: {
@@ -1007,6 +1008,14 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
     const functionCalls = candidate.content.parts.filter((p: any) => p.functionCall);
     const textParts = candidate.content.parts.filter((p: any) => p.text);
 
+    console.log(`processGeminiResponse depth=${depth}: ${functionCalls.length} function calls, ${textParts.length} text parts`);
+    if (functionCalls.length > 0) {
+        console.log("Function calls:", functionCalls.map((fc: any) => `${fc.functionCall.name}(${JSON.stringify(fc.functionCall.args).substring(0, 200)})`).join(", "));
+    }
+    if (textParts.length > 0 && functionCalls.length === 0) {
+        console.log("Text response (first 300 chars):", textParts.map((p: any) => p.text).join(" ").substring(0, 300));
+    }
+
     if (functionCalls.length === 0) {
         const text = textParts.map((p: any) => p.text).join("\n");
         return { type: "text", message: text || "Je n'ai pas compris. Pouvez-vous reformuler ?" };
@@ -1182,6 +1191,21 @@ Deno.serve(async (req: Request) => {
 
     try {
         const body = await req.json();
+
+        // TEST ENDPOINT: bypass Gemini entirely
+        if (body._test === "create_rdv") {
+            console.log("TEST: Direct create_appointment call");
+            const result = await executeTool("create_appointment", {
+                user_name: body.user_name || "Quentin",
+                objet: body.objet || "RDV TEST",
+                debut: body.debut || "2026-03-09 15:30:00",
+                fin: body.fin || "2026-03-09 16:30:00",
+            });
+            return new Response(JSON.stringify({ test: true, result }), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+
         if (!body.message && !body.actionResponse) {
             return new Response(JSON.stringify({ type: "error", message: "Aucun message reçu." }),
                 { headers: { ...corsHeaders, "Content-Type": "application/json" } });
