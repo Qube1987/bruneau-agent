@@ -251,6 +251,7 @@ const TOOLS = [
             type: "OBJECT",
             properties: {
                 product_id: { type: "STRING", description: "UUID du produit stock (obtenu via check_stock)" },
+                product_name: { type: "STRING", description: "Nom exact du produit (pour fallback si l'ID est invalide)" },
                 location: { type: "STRING", description: "Emplacement: depot, paul_truck, quentin_truck (défaut: depot)" },
                 quantity_change: { type: "NUMBER", description: "Modification de quantité. Négatif pour retirer (ex: -1), positif pour ajouter (ex: +3)" },
                 comment: { type: "STRING", description: "Commentaire/raison de la modification (ex: 'utilisé sur chantier', 'réapprovisionnement')" },
@@ -743,11 +744,12 @@ async function executeTool(toolName: string, args: any): Promise<any> {
         // ===== UPDATE STOCK QUANTITY =====
         case "update_stock_quantity": {
             const productId = args?.product_id;
+            const productName = args?.product_name;
             const location = args?.location || "depot";
             const quantityChange = parseInt(args?.quantity_change);
             const comment = args?.comment || "Modification via agent";
 
-            if (!productId) return { error: "product_id requis" };
+            if (!productId && !productName) return { error: "product_id ou product_name requis" };
             if (isNaN(quantityChange) || quantityChange === 0) return { error: "quantity_change invalide (doit être un nombre non nul)" };
 
             // Map location to column name
@@ -759,13 +761,34 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const column = columnMap[location];
             if (!column) return { error: `Emplacement invalide: ${location}. Utiliser: depot, paul_truck, quentin_truck` };
 
-            // Get current quantity
-            const { data: product, error: fetchError } = await db
-                .from("stock_products")
-                .select("id, name, depot_quantity, paul_truck_quantity, quentin_truck_quantity")
-                .eq("id", productId)
-                .single();
-            if (fetchError || !product) return { error: fetchError?.message || "Produit non trouvé" };
+            // Get current product — try by ID first, fallback to name search
+            let product: any = null;
+            if (productId) {
+                const { data, error: fetchError } = await db
+                    .from("stock_products")
+                    .select("id, name, depot_quantity, paul_truck_quantity, quentin_truck_quantity")
+                    .eq("id", productId)
+                    .single();
+                if (!fetchError && data) product = data;
+            }
+
+            // Fallback: search by exact name (case-insensitive)
+            if (!product && productName) {
+                console.log(`Product ID lookup failed, falling back to name search: "${productName}"`);
+                const { data } = await db
+                    .from("stock_products")
+                    .select("id, name, depot_quantity, paul_truck_quantity, quentin_truck_quantity")
+                    .ilike("name", productName);
+                if (data && data.length === 1) {
+                    product = data[0];
+                } else if (data && data.length > 1) {
+                    // Try exact match first
+                    const exact = data.find((p: any) => p.name.toLowerCase() === productName.toLowerCase());
+                    product = exact || data[0];
+                }
+            }
+
+            if (!product) return { error: `Produit non trouvé (ID: ${productId}, nom: ${productName})` };
 
             const currentQty = (product as any)[column] || 0;
             const newQty = currentQty + quantityChange;
@@ -775,13 +798,13 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const { error: updateError } = await db
                 .from("stock_products")
                 .update({ [column]: newQty })
-                .eq("id", productId);
+                .eq("id", (product as any).id);
             if (updateError) return { error: updateError.message };
 
             // Insert movement record
             const movementType = quantityChange > 0 ? "entrée" : "sortie";
             await db.from("stock_movements").insert({
-                stock_product_id: productId,
+                stock_product_id: (product as any).id,
                 movement_type: movementType,
                 location,
                 quantity_change: quantityChange,
@@ -1083,7 +1106,15 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
     if (depth > 5) return { type: "error", message: "Trop d'étapes. Reformulez votre demande." };
 
     const candidate = geminiResult?.candidates?.[0];
-    if (!candidate?.content?.parts) return { type: "error", message: "Réponse inattendue du modèle." };
+    if (!candidate?.content?.parts) {
+        console.error("Unexpected Gemini response structure:", JSON.stringify(geminiResult).substring(0, 1000));
+        // Check if there's a blockReason or other info
+        const blockReason = geminiResult?.candidates?.[0]?.finishReason;
+        const promptFeedback = geminiResult?.promptFeedback;
+        if (blockReason) console.error("Finish reason:", blockReason);
+        if (promptFeedback) console.error("Prompt feedback:", JSON.stringify(promptFeedback));
+        return { type: "error", message: `Réponse inattendue du modèle. ${blockReason ? `(${blockReason})` : 'Réessayez.'}` };
+    }
 
     const functionCalls = candidate.content.parts.filter((p: any) => p.functionCall);
     const textParts = candidate.content.parts.filter((p: any) => p.text);
