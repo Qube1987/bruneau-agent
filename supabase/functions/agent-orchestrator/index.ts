@@ -73,6 +73,8 @@ RÈGLES IMPORTANTES :
 - Quand on te dit "pile HS" ou "batterie HS", le system_type est souvent "intrusion"
 - Quand on te demande de "créer un SAV", c'est une sav_request
 - FLUX DE CRÉATION SAV : 1) search_client 2) list_users 3) ask_user_selection avec les utilisateurs formatés en options [{label: display_name, subtitle: role, value: id}] pour demander à qui assigner 4) ask_user_confirmation avec TOUS les détails dont assigned_user_id et assigned_user_name 5) create_sav_request
+- FLUX DE CRÉATION OPPORTUNITÉ : 1) search_client (cherche le client mentionné) 2) si plusieurs résultats, ask_user_selection 3) ask_user_confirmation avec tous les détails 4) create_opportunity
+- IMPORTANT : Pour TOUTE création (SAV ou opportunité), commence TOUJOURS par search_client avec le nom mentionné. Ne demande JAMAIS "pour quel client ?" si un nom est déjà mentionné dans la demande.
 - Ne demande JAMAIS de taper un nom d'utilisateur. Utilise TOUJOURS ask_user_selection avec la liste cliquable.
 - Pour search_client, utilise UNIQUEMENT le nom de famille (sans civilité M., Mme, etc.). Exemple : pour "M. Pages", cherche "Pages"
 - Table "users" : utilisateurs de l'équipe (id, display_name, email, role[admin/manager/technicien])
@@ -131,17 +133,18 @@ const TOOLS = [
     },
     {
         name: "create_opportunity",
-        description: "Créer une nouvelle opportunité commerciale. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        description: "Créer une nouvelle opportunité commerciale. IMPORTANT: appeler search_client puis ask_user_confirmation d'abord.",
         parameters: {
             type: "OBJECT",
             properties: {
-                client_id: { type: "STRING", description: "UUID du client" },
+                client_id: { type: "STRING", description: "UUID du client Supabase (obtenu via search_client, source 'supabase'). Null si client Extrabat uniquement." },
+                client_name: { type: "STRING", description: "Nom du client" },
                 titre: { type: "STRING", description: "Titre de l'opportunité" },
                 description: { type: "STRING", description: "Description" },
                 montant_estime: { type: "NUMBER", description: "Montant estimé (optionnel)" },
                 suivi_par: { type: "STRING", description: "Personne en charge (défaut: Quentin)" },
             },
-            required: ["client_id", "titre", "description"],
+            required: ["client_name", "titre", "description"],
         },
     },
     {
@@ -366,16 +369,21 @@ async function executeTool(toolName: string, args: any): Promise<any> {
         }
 
         case "create_opportunity": {
+            // Handle client_id: skip if null, empty, or starts with "extrabat-" (not a valid Supabase UUID)
+            const validOppClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
+            const oppInsertData: any = {
+                titre: args.titre,
+                description: args.description || "",
+                montant_estime: args.montant_estime || null,
+                suivi_par: args.suivi_par || "Quentin",
+                statut: "nouveau",
+            };
+            if (validOppClientId) {
+                oppInsertData.client_id = validOppClientId;
+            }
             const { data, error } = await db
                 .from("opportunites")
-                .insert({
-                    client_id: args.client_id,
-                    titre: args.titre,
-                    description: args.description || "",
-                    montant_estime: args.montant_estime || null,
-                    suivi_par: args.suivi_par || "Quentin",
-                    statut: "nouveau",
-                })
+                .insert(oppInsertData)
                 .select("id, titre, statut")
                 .single();
 
@@ -575,9 +583,10 @@ async function handleConversation(body: any): Promise<any> {
                 }
                 return { type: "error", message: `Erreur lors de la création du SAV : ${result?.error || "erreur inconnue"}` };
             }
-            if (isOpportunity && details.client_id) {
+            if (isOpportunity && (details.client_name || details.client_id)) {
                 const result = await executeTool("create_opportunity", {
-                    client_id: details.client_id,
+                    client_id: details.client_id || null,
+                    client_name: details.client_name || "",
                     titre: details.titre || "",
                     description: details.description || "",
                     montant_estime: details.montant_estime || null,
