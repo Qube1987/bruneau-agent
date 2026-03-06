@@ -78,6 +78,16 @@ RÈGLES IMPORTANTES :
 - Pour check_stock, passe la requête telle quelle (ex: "centrales ajax", "détecteurs daitem", "batterie"). La recherche est intelligente et cherche dans le nom du produit, la marque, le fournisseur, les catégories et sous-catégories du stock, et les descriptions du catalogue produits.
 - Le stock est organisé en catégories (ex: "Alarme Ajax Jeweller", "Vidéosurveillance") et sous-catégories (ex: "Centrales", "Détecteurs", "Sirènes")
 
+AGENDA / RENDEZ-VOUS :
+- L'agenda est géré via l'API Extrabat. Chaque utilisateur a un code Extrabat lié.
+- Correspondance des membres de l'équipe : Quentin (46516), Paul (218599), Cindy (47191), Téo (485533)
+- Quand l'utilisateur dit "mon agenda" ou "mes rendez-vous" sans préciser de nom, utilise le code de Quentin (46516) par défaut
+- Quand on te demande l'agenda de Paul, utilise directement son code (218599) sans demander de précision
+- Pour les dates : "demain" = jour suivant, "lundi prochain" = prochain lundi, "cet après-midi" = aujourd'hui 14:00-18:00, "cette semaine" = du lundi au vendredi de la semaine courante
+- La date/heure actuelle est fournie dans le contexte. Utilise-la pour calculer les dates relatives.
+- FLUX DE CRÉATION DE RDV : 1) Interpréter la date/heure 2) ask_user_confirmation avec les détails 3) create_appointment
+- Pour les RDV, le format de date est "YYYY-MM-DD HH:MM:SS"
+
 RECHERCHE DE CLIENTS :
 - search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
 - Chaque client retourné a un champ "source" ("supabase" ou "extrabat")
@@ -107,6 +117,10 @@ FORMAT DES RÉPONSES POUR LES LISTES :
     - Hub2 4G-W (Ajax) : 0 total (dépôt: 0) ⚠️ RUPTURE
     - Hub Hybrid 4G-B (Ajax) : 1 total (dépôt: 1)
     - Hub Hybrid 4G-W (Ajax) : 2 total (dépôt: 2)"
+- Pour l'AGENDA (get_agenda) :
+  - Liste chaque RDV sur une ligne : "- HH:MM - HH:MM : Objet (Client si disponible)"
+  - Si le jour est vide, indique "Aucun rendez-vous"
+  - Quand on demande "de la place" ou des "disponibilités", analyse les créneaux et indique les plages libres (horaires 7h-18h)
 - Limite à 15 éléments max, mentionne s'il y en a plus
 
 STRUCTURE DE LA BASE :
@@ -242,6 +256,46 @@ const TOOLS = [
         parameters: {
             type: "OBJECT",
             properties: {},
+        },
+    },
+
+    // ===== AGENDA =====
+    {
+        name: "get_agenda",
+        description: "Consulter l'agenda / les rendez-vous d'un membre de l'équipe. Utilise cet outil quand on demande les rdv, l'agenda, les disponibilités, la place dans l'agenda.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                user_name: { type: "STRING", description: "Nom de la personne (Quentin, Paul, Cindy, Téo). Défaut: Quentin" },
+                date_debut: { type: "STRING", description: "Date de début au format YYYY-MM-DD. Défaut: aujourd'hui" },
+                date_fin: { type: "STRING", description: "Date de fin au format YYYY-MM-DD. Défaut: même jour que date_debut" },
+            },
+        },
+    },
+    {
+        name: "create_appointment",
+        description: "Créer un rendez-vous dans l'agenda Extrabat. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                user_name: { type: "STRING", description: "Nom de la personne (Quentin, Paul, Cindy, Téo). Défaut: Quentin" },
+                objet: { type: "STRING", description: "Objet / titre du rendez-vous" },
+                debut: { type: "STRING", description: "Date et heure de début au format YYYY-MM-DD HH:MM:SS" },
+                fin: { type: "STRING", description: "Date et heure de fin au format YYYY-MM-DD HH:MM:SS" },
+                journee: { type: "BOOLEAN", description: "Si true, le rdv dure toute la journée (défaut: false)" },
+            },
+            required: ["objet", "debut", "fin"],
+        },
+    },
+    {
+        name: "delete_appointment",
+        description: "Supprimer un rendez-vous de l'agenda Extrabat. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                appointment_id: { type: "STRING", description: "ID du rendez-vous à supprimer" },
+            },
+            required: ["appointment_id"],
         },
     },
 
@@ -384,6 +438,51 @@ async function searchExtrabat(query: string): Promise<any[]> {
             actif: true, source: "extrabat",
         };
     }).slice(0, 10);
+}
+
+// --- Extrabat user code mapping ---
+const EXTRABAT_USERS: Record<string, string> = {
+    "quentin": "46516", "paul": "218599", "cindy": "47191", "téo": "485533", "teo": "485533",
+};
+
+function getExtrabatCode(name?: string): string {
+    if (!name) return "46516"; // Default: Quentin
+    const clean = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    for (const [key, code] of Object.entries(EXTRABAT_USERS)) {
+        const cleanKey = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (clean.includes(cleanKey)) return code;
+    }
+    return "46516"; // Fallback: Quentin
+}
+
+async function callExtrabat(method: string, path: string, body?: any): Promise<any> {
+    const apiKey = Deno.env.get("EXTRABAT_API_KEY");
+    const securityKey = Deno.env.get("EXTRABAT_SECURITY");
+    if (!apiKey || !securityKey) return { error: "Extrabat API credentials not configured" };
+
+    const url = `https://api.extrabat.com${path}`;
+    console.log(`Extrabat ${method} ${url}`, body ? JSON.stringify(body) : "");
+
+    const opts: any = {
+        method,
+        headers: {
+            "Content-Type": "application/json",
+            "X-EXTRABAT-API-KEY": apiKey,
+            "X-EXTRABAT-SECURITY": securityKey,
+        },
+    };
+    if (body) opts.body = JSON.stringify(body);
+
+    const response = await fetch(url, opts);
+    const text = await response.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = text; }
+
+    if (!response.ok) {
+        console.error("Extrabat API error:", response.status, data);
+        return { error: `Extrabat API error: ${response.status}` };
+    }
+    return data;
 }
 
 // --- Date helper ---
@@ -674,6 +773,82 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             return { users: data || [], count: (data || []).length };
         }
 
+        // ===== GET AGENDA =====
+        case "get_agenda": {
+            const extrabatCode = getExtrabatCode(args.user_name);
+            const today = new Date().toISOString().split("T")[0];
+            const dateDebut = args.date_debut || today;
+            const dateFin = args.date_fin || dateDebut;
+
+            const data = await callExtrabat("GET",
+                `/v1/utilisateur/${extrabatCode}/rendez-vous?date_debut=${dateDebut}&date_fin=${dateFin}&include=client`
+            );
+
+            if (data.error) return { error: data.error };
+
+            const appointments = Array.isArray(data) ? data : (data ? Object.values(data) : []);
+
+            // Format appointments for the AI
+            const formatted = (appointments as any[]).map((apt: any) => ({
+                id: apt.id,
+                objet: apt.objet,
+                debut: apt.debut,
+                fin: apt.fin,
+                journee: apt.journee,
+                clients: apt.clients || [],
+            }));
+
+            // Sort by start time
+            formatted.sort((a: any, b: any) => new Date(a.debut).getTime() - new Date(b.debut).getTime());
+
+            const userName = args.user_name || "Quentin";
+            return {
+                user: userName,
+                date_debut: dateDebut,
+                date_fin: dateFin,
+                appointments: formatted,
+                count: formatted.length,
+            };
+        }
+
+        // ===== CREATE APPOINTMENT =====
+        case "create_appointment": {
+            const extrabatCode = getExtrabatCode(args.user_name);
+            const userName = args.user_name || "Quentin";
+
+            const appointmentData: any = {
+                journee: args.journee || false,
+                objet: args.objet,
+                debut: args.debut,
+                fin: args.fin,
+                couleur: 23061,
+                users: [{ user: parseInt(extrabatCode, 10) }],
+            };
+
+            const data = await callExtrabat("POST", `/v1/agenda/rendez-vous`, appointmentData);
+
+            if (data.error) return { error: data.error };
+
+            return {
+                success: true,
+                message: `Rendez-vous "${args.objet}" créé pour ${userName}`,
+                appointment_id: data.id || data,
+                details: { objet: args.objet, debut: args.debut, fin: args.fin, user: userName },
+            };
+        }
+
+        // ===== DELETE APPOINTMENT =====
+        case "delete_appointment": {
+            const data = await callExtrabat("DELETE", `/v1/agenda/rendez-vous/${args.appointment_id}`);
+
+            if (data.error) return { error: data.error };
+
+            return {
+                success: true,
+                message: `Rendez-vous ${args.appointment_id} supprimé`,
+            };
+        }
+
         // ===== CREATE SAV =====
         case "create_sav_request": {
             const validClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
@@ -809,7 +984,12 @@ async function handleConversation(body: any): Promise<any> {
         geminiMessages.push({ role: msg.role === "user" ? "user" : "model", parts: [{ text: msg.content }] });
     }
     if (message && (!conversation.length || conversation[conversation.length - 1]?.content !== message)) {
-        geminiMessages.push({ role: "user", parts: [{ text: message }] });
+        // Inject current date/time context for date-relative queries
+        const now = new Date();
+        const days = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+        const dayName = days[now.getDay()];
+        const dateContext = `[Contexte : nous sommes ${dayName} ${now.toISOString().split("T")[0]}, il est ${now.toTimeString().slice(0, 5)}]`;
+        geminiMessages.push({ role: "user", parts: [{ text: `${dateContext}\n${message}` }] });
     }
 
     // Handle HITL action responses
@@ -858,6 +1038,28 @@ async function handleConversation(body: any): Promise<any> {
                 });
                 if (result?.success) return { type: "success", message: `Statut opportunité modifié.` };
                 return { type: "error", message: `Erreur modification opportunité : ${result?.error || "inconnue"}` };
+            }
+
+            // Direct appointment creation
+            if ((pending.includes("appointment") || pending.includes("rdv") || pending.includes("rendez")) && details.objet) {
+                const result = await executeTool("create_appointment", {
+                    user_name: details.user_name || null,
+                    objet: details.objet,
+                    debut: details.debut,
+                    fin: details.fin,
+                    journee: details.journee || false,
+                });
+                if (result?.success) return { type: "success", message: result.message || `Rendez-vous créé avec succès.` };
+                return { type: "error", message: `Erreur création RDV : ${result?.error || "inconnue"}` };
+            }
+
+            // Direct appointment deletion
+            if (pending.includes("delete") && pending.includes("appointment") && details.appointment_id) {
+                const result = await executeTool("delete_appointment", {
+                    appointment_id: details.appointment_id,
+                });
+                if (result?.success) return { type: "success", message: result.message || `Rendez-vous supprimé.` };
+                return { type: "error", message: `Erreur suppression RDV : ${result?.error || "inconnue"}` };
             }
 
             // Fallback
