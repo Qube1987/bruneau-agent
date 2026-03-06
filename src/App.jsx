@@ -3,6 +3,7 @@ import { useAgent } from './hooks/useAgent';
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
+import AgendaPanel from './components/AgendaPanel';
 
 const SUGGESTIONS = [
   { icon: '🔧', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
@@ -182,6 +183,9 @@ export default function App() {
           })
         )}
       </div>
+
+      {/* Agenda Panel */}
+      <AgendaPanel />
 
       {/* Input Area */}
       <div className="input-area">
