@@ -72,6 +72,7 @@ RÈGLES IMPORTANTES :
 - "centrale" ou "centrale d'alarme" fait référence au système d'intrusion
 - Quand on te dit "pile HS" ou "batterie HS", le system_type est souvent "intrusion"
 - Quand on te demande de "créer un SAV", c'est une sav_request
+- Pour search_client, utilise UNIQUEMENT le nom de famille (sans civilité M., Mme, etc.). Exemple : pour "M. Pages", cherche "Pages"
 
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
@@ -197,10 +198,22 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
     switch (toolName) {
         case "search_client": {
+            // Strip French civility prefixes and clean up the query
+            const civilities = /^(m\.|mr\.?|mme\.?|monsieur|madame|mademoiselle|mlle\.?|société|ste\.?|ets\.?)\s+/i;
+            const cleanedQuery = args.query.replace(civilities, "").trim();
+            // Split into words and search for each meaningful word (length > 1)
+            const words = cleanedQuery.split(/\s+/).filter((w: string) => w.length > 1);
+            const searchTerms = words.length > 0 ? words : [cleanedQuery];
+
+            // Build OR conditions: search each word against nom, prenom, entreprise
+            const orConditions = searchTerms
+                .map((term: string) => `nom.ilike.%${term}%,prenom.ilike.%${term}%,entreprise.ilike.%${term}%`)
+                .join(",");
+
             const { data, error } = await db
                 .from("clients")
                 .select("id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, actif")
-                .or(`nom.ilike.%${args.query}%,prenom.ilike.%${args.query}%,entreprise.ilike.%${args.query}%`)
+                .or(orConditions)
                 .eq("actif", true)
                 .order("updated_at", { ascending: false })
                 .limit(10);
