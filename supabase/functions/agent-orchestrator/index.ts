@@ -90,7 +90,7 @@ RECHERCHE DE CLIENTS :
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
 - Table "sav_requests" : demandes SAV (id, client_id FK→clients, client_name, phone, address, system_type, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority)
-- Table "opportunites" : opportunités commerciales (id, client_id FK→clients, titre, description, statut[nouveau/a-contacter/rdv-pris/devis-envoye/relance/negoce/signe/perdu], suivi_par, montant_estime)
+- Table "opportunites" : opportunités commerciales (id, client_id FK→clients, titre, description, statut[a-contacter/contacte/recueil-besoin/redaction-devis/devis-transmis/relance-1/relance-2/relance-3], suivi_par, montant_estime, statut_final[gagne/perdu/standby])
 - Table "maintenance_contracts" : contrats de maintenance (id, client_id FK→clients, client_name, system_type, status, address)
 - Table "stock_products" : stock (id, name, code_article, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
 - Table "devis" : devis (id, client_id FK→clients, devis_number, status, titre_affaire)
@@ -376,7 +376,7 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 description: args.description || "",
                 montant_estime: args.montant_estime || null,
                 suivi_par: args.suivi_par || "Quentin",
-                statut: "nouveau",
+                statut: "a-contacter",
             };
             if (validOppClientId) {
                 oppInsertData.client_id = validOppClientId;
