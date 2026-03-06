@@ -363,47 +363,55 @@ async function processGeminiResponse(
         return { type: "error", message: "Réponse inattendue du modèle." };
     }
 
-    for (const part of candidate.content.parts) {
-        if (part.functionCall) {
-            const { name, args } = part.functionCall;
-            const result = await executeTool(name, args || {});
+    // Collect ALL function calls from this response (Gemini can return multiple in parallel)
+    const functionCalls = candidate.content.parts.filter((p: any) => p.functionCall);
+    const textParts = candidate.content.parts.filter((p: any) => p.text);
 
-            // If HITL needed, return immediately
-            if (result?._hitl) {
-                delete result._hitl;
-                return result;
-            }
+    if (functionCalls.length === 0) {
+        // No function calls — return text
+        const text = textParts.map((p: any) => p.text).join("\n");
+        return { type: "text", message: text || "Je n'ai pas compris. Pouvez-vous reformuler ?" };
+    }
 
-            // Feed result back to Gemini
-            messages.push({
-                role: "model",
-                parts: [{ functionCall: { name, args: args || {} } }],
-            });
-            messages.push({
-                role: "user",
-                parts: [{ functionResponse: { name, response: result } }],
-            });
+    // Execute ALL function calls
+    const modelParts: any[] = [];
+    const responseParts: any[] = [];
+    let hitlResult: any = null;
 
-            // Call Gemini again with the tool result
-            let followUp;
-            try {
-                followUp = await callGemini(messages, TOOLS);
-            } catch (error) {
-                console.error("Gemini follow-up failed:", error);
-                // If a write tool succeeded, still report success
-                if (result?.success) {
-                    return { type: "success", message: `Action réalisée avec succès.` };
-                }
-                return { type: "error", message: "Erreur lors du traitement." };
-            }
+    for (const part of functionCalls) {
+        const { name, args } = part.functionCall;
+        const result = await executeTool(name, args || {});
 
-            // Recursively process the follow-up
-            return processGeminiResponse(followUp, messages, depth + 1);
+        // If HITL needed, save it but still execute remaining non-HITL calls
+        if (result?._hitl) {
+            delete result._hitl;
+            hitlResult = result;
+            continue;
         }
 
-        if (part.text) {
-            return { type: "text", message: part.text };
+        modelParts.push({ functionCall: { name, args: args || {} } });
+        responseParts.push({ functionResponse: { name, response: result } });
+    }
+
+    // If any call was HITL, return it now (after executing all non-HITL calls)
+    if (hitlResult) {
+        return hitlResult;
+    }
+
+    // Feed ALL results back to Gemini in one turn
+    if (modelParts.length > 0) {
+        messages.push({ role: "model", parts: modelParts });
+        messages.push({ role: "user", parts: responseParts });
+
+        let followUp;
+        try {
+            followUp = await callGemini(messages, TOOLS);
+        } catch (error) {
+            console.error("Gemini follow-up failed:", error);
+            return { type: "error", message: "Erreur lors du traitement." };
         }
+
+        return processGeminiResponse(followUp, messages, depth + 1);
     }
 
     return { type: "text", message: "Je n'ai pas compris. Pouvez-vous reformuler ?" };
