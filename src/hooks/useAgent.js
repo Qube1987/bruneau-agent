@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { supabase, AGENT_FUNCTION_URL } from '../lib/supabase';
+import { supabase, AGENT_FUNCTION_URL, SUPABASE_ANON } from '../lib/supabase';
 
 /**
  * Message types:
@@ -38,7 +38,8 @@ export function useAgent() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                    'Authorization': `Bearer ${token || SUPABASE_ANON}`,
+                    'apikey': SUPABASE_ANON,
                 },
                 body: JSON.stringify(payload),
             });
