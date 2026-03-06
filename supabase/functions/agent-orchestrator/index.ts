@@ -73,6 +73,8 @@ RÈGLES IMPORTANTES :
 - Quand on te demande de "créer un SAV", c'est une sav_request
 - FLUX DE CRÉATION SAV : 1) search_client 2) list_users 3) ask_user_selection avec les utilisateurs formatés en options [{label: display_name, subtitle: role, value: id}] pour demander à qui assigner 4) ask_user_confirmation avec TOUS les détails dont assigned_user_id et assigned_user_name 5) create_sav_request
 - FLUX DE CRÉATION OPPORTUNITÉ : 1) search_client (cherche le client mentionné) 2) si plusieurs résultats, ask_user_selection 3) ask_user_confirmation avec tous les détails 4) create_opportunity
+- FLUX DE MODIFICATION STOCK : 1) check_stock pour trouver le produit 2) si plusieurs résultats, ask_user_selection pour que l'utilisateur choisisse lequel modifier 3) ask_user_confirmation avec le nom du produit, la quantité actuelle, la modification demandée et la nouvelle quantité résultante 4) update_stock_quantity
+- Les emplacements stock sont : depot (dépôt principal), paul_truck (camion Paul), quentin_truck (camion Quentin). Si l'emplacement n'est pas précisé, utiliser depot.
 - IMPORTANT : Pour TOUTE création (SAV ou opportunité), commence TOUJOURS par search_client avec le nom mentionné. Ne demande JAMAIS "pour quel client ?" si un nom est déjà mentionné dans la demande.
 - Ne demande JAMAIS de taper un nom d'utilisateur. Utilise TOUJOURS ask_user_selection avec la liste cliquable.
 - Pour search_client, utilise UNIQUEMENT le nom de famille (sans civilité M., Mme, etc.). Exemple : pour "M. Pages", cherche "Pages"
@@ -138,6 +140,7 @@ STRUCTURE DE LA BASE :
 - Table "opportunites" : opportunités commerciales (id, client_id, titre, description, statut[a-contacter/contacte/recueil-besoin/redaction-devis/devis-transmis/relance-1/relance-2/relance-3], suivi_par, montant_estime, statut_final[gagne/perdu/standby], archive, prioritaire, date_creation)
 - Table "maintenance_contracts" : contrats de maintenance (id, client_id, client_name, system_type, system_brand, status[actif/inactif], address, annual_amount, billing_mode, invoice_sent, invoice_paid)
 - Table "stock_products" : stock (id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
+- Table "stock_movements" : historique des mouvements stock (id, stock_product_id, movement_type[entrée/sortie/ajustement/transfert], location[depot/paul_truck/quentin_truck], quantity_change, comment, created_at)
 - Table "devis" : devis (id, client_id, devis_number, status[brouillon/envoye/accepte/refuse], titre_affaire, totaux)
 - Table "call_notes" : notes d'appels (id, client_name, call_subject, notes, is_completed, priority)
 
@@ -239,6 +242,20 @@ const TOOLS = [
         parameters: {
             type: "OBJECT",
             properties: {},
+        },
+    },
+    {
+        name: "update_stock_quantity",
+        description: "Modifier la quantité d'un produit en stock. IMPORTANT: appeler check_stock d'abord pour trouver le produit, puis ask_user_confirmation AVANT de modifier. Les emplacements possibles sont: depot, paul_truck, quentin_truck.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                product_id: { type: "STRING", description: "UUID du produit stock (obtenu via check_stock)" },
+                location: { type: "STRING", description: "Emplacement: depot, paul_truck, quentin_truck (défaut: depot)" },
+                quantity_change: { type: "NUMBER", description: "Modification de quantité. Négatif pour retirer (ex: -1), positif pour ajouter (ex: +3)" },
+                comment: { type: "STRING", description: "Commentaire/raison de la modification (ex: 'utilisé sur chantier', 'réapprovisionnement')" },
+            },
+            required: ["product_id", "quantity_change"],
         },
     },
     {
@@ -379,8 +396,8 @@ const TOOLS = [
             type: "OBJECT",
             properties: {
                 message: { type: "STRING", description: "Message de confirmation clair pour l'utilisateur" },
-                action_type: { type: "STRING", description: "Type d'action : create_sav, create_opportunity, create_rdv, update_sav, update_opportunity, delete_rdv" },
-                details: { type: "STRING", description: "JSON string des détails à confirmer. Pour un RDV: {\"objet\": \"...\", \"debut\": \"YYYY-MM-DD HH:MM:SS\", \"fin\": \"YYYY-MM-DD HH:MM:SS\", \"user_name\": \"Quentin\"}" },
+                action_type: { type: "STRING", description: "Type d'action : create_sav, create_opportunity, create_rdv, update_sav, update_opportunity, delete_rdv, update_stock" },
+                details: { type: "STRING", description: "JSON string des détails à confirmer. Pour un RDV: {\"objet\": \"...\", \"debut\": \"YYYY-MM-DD HH:MM:SS\", \"fin\": \"YYYY-MM-DD HH:MM:SS\", \"user_name\": \"Quentin\"}. Pour update_stock: {\"product_name\": \"...\", \"product_id\": \"...\", \"location\": \"depot\", \"current_quantity\": 5, \"quantity_change\": -1, \"new_quantity\": 4}" },
             },
             required: ["message", "action_type", "details"],
         },
@@ -721,6 +738,66 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 deficit: (p.min_quantity || 0) - ((p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0)),
             }));
             return { alerts, count: alerts.length, message: alerts.length === 0 ? "Aucune alerte stock" : `${alerts.length} produit(s) sous le seuil minimum` };
+        }
+
+        // ===== UPDATE STOCK QUANTITY =====
+        case "update_stock_quantity": {
+            const productId = args?.product_id;
+            const location = args?.location || "depot";
+            const quantityChange = parseInt(args?.quantity_change);
+            const comment = args?.comment || "Modification via agent";
+
+            if (!productId) return { error: "product_id requis" };
+            if (isNaN(quantityChange) || quantityChange === 0) return { error: "quantity_change invalide (doit être un nombre non nul)" };
+
+            // Map location to column name
+            const columnMap: Record<string, string> = {
+                depot: "depot_quantity",
+                paul_truck: "paul_truck_quantity",
+                quentin_truck: "quentin_truck_quantity",
+            };
+            const column = columnMap[location];
+            if (!column) return { error: `Emplacement invalide: ${location}. Utiliser: depot, paul_truck, quentin_truck` };
+
+            // Get current quantity
+            const { data: product, error: fetchError } = await db
+                .from("stock_products")
+                .select("id, name, depot_quantity, paul_truck_quantity, quentin_truck_quantity")
+                .eq("id", productId)
+                .single();
+            if (fetchError || !product) return { error: fetchError?.message || "Produit non trouvé" };
+
+            const currentQty = (product as any)[column] || 0;
+            const newQty = currentQty + quantityChange;
+            if (newQty < 0) return { error: `Quantité insuffisante. Stock actuel ${location}: ${currentQty}, modification demandée: ${quantityChange}` };
+
+            // Update quantity
+            const { error: updateError } = await db
+                .from("stock_products")
+                .update({ [column]: newQty })
+                .eq("id", productId);
+            if (updateError) return { error: updateError.message };
+
+            // Insert movement record
+            const movementType = quantityChange > 0 ? "entrée" : "sortie";
+            await db.from("stock_movements").insert({
+                stock_product_id: productId,
+                movement_type: movementType,
+                location,
+                quantity_change: quantityChange,
+                comment: `[Agent] ${comment}`,
+            });
+
+            const locationLabels: Record<string, string> = { depot: "Dépôt", paul_truck: "Camion Paul", quentin_truck: "Camion Quentin" };
+            return {
+                success: true,
+                product_name: (product as any).name,
+                location: locationLabels[location] || location,
+                previous_quantity: currentQty,
+                quantity_change: quantityChange,
+                new_quantity: newQty,
+                message: `Stock mis à jour : ${(product as any).name} (${locationLabels[location] || location}) : ${currentQty} → ${newQty} (${quantityChange > 0 ? '+' : ''}${quantityChange})`,
+            };
         }
 
         // ===== GET SAV STATS =====
