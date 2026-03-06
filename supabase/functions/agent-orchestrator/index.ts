@@ -75,7 +75,7 @@ RÈGLES IMPORTANTES :
 
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
-- Table "sav_requests" : demandes SAV (id, client_id FK→clients, client_name, phone, address, system_type, problem_desc, status[nouveau/en_cours/termine/archive], urgent, priority)
+- Table "sav_requests" : demandes SAV (id, client_id FK→clients, client_name, phone, address, system_type, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority)
 - Table "opportunites" : opportunités commerciales (id, client_id FK→clients, titre, description, statut[nouveau/a-contacter/rdv-pris/devis-envoye/relance/negoce/signe/perdu], suivi_par, montant_estime)
 - Table "maintenance_contracts" : contrats de maintenance (id, client_id FK→clients, client_name, system_type, status, address)
 - Table "stock_products" : stock (id, name, code_article, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
@@ -220,7 +220,7 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                     system_type: args.system_type || "autre",
                     problem_desc: args.problem_desc,
                     urgent: args.urgent || false,
-                    status: "nouveau",
+                    status: "nouvelle",
                 })
                 .select("id, client_name, status, system_type, problem_desc")
                 .single();
@@ -261,7 +261,7 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
             if (error) return { error: error.message };
 
-            const stats: Record<string, number> = { total: 0, nouveau: 0, en_cours: 0, termine: 0, archive: 0 };
+            const stats: Record<string, number> = { total: 0, nouvelle: 0, en_cours: 0, terminee: 0, archivee: 0 };
             for (const row of data || []) {
                 stats.total++;
                 const s = row.status || "nouveau";
