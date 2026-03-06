@@ -405,9 +405,41 @@ async function handleConversation(body: any): Promise<any> {
     // Handle HITL action responses
     if (actionResponse) {
         if (actionResponse.type === "confirm" && actionResponse.confirmed) {
+            // Direct execution: use the confirmed details to execute the action
+            // without re-calling Gemini (which loses tool call context)
+            const details = actionResponse.details || {};
+            if (actionResponse.pendingAction === "create_sav" && details.client_id) {
+                const result = await executeTool("create_sav_request", {
+                    client_id: details.client_id,
+                    client_name: details.client_name || "",
+                    phone: details.phone || null,
+                    address: details.address || null,
+                    system_type: details.system_type || "autre",
+                    problem_desc: details.problem_desc || "",
+                    urgent: details.urgent || false,
+                });
+                if (result?.success) {
+                    return { type: "success", message: `SAV créé avec succès pour ${details.client_name || "le client"}.` };
+                }
+                return { type: "error", message: `Erreur lors de la création du SAV : ${result?.error || "erreur inconnue"}` };
+            }
+            if (actionResponse.pendingAction === "create_opportunity" && details.client_id) {
+                const result = await executeTool("create_opportunity", {
+                    client_id: details.client_id,
+                    titre: details.titre || "",
+                    description: details.description || "",
+                    montant_estime: details.montant_estime || null,
+                    suivi_par: details.suivi_par || "Quentin",
+                });
+                if (result?.success) {
+                    return { type: "success", message: `Opportunité créée avec succès pour ${details.client_name || "le client"}.` };
+                }
+                return { type: "error", message: `Erreur lors de la création de l'opportunité : ${result?.error || "erreur inconnue"}` };
+            }
+            // Fallback: re-call Gemini with context (for unknown action types)
             geminiMessages.push({
                 role: "user",
-                parts: [{ text: "L'utilisateur a confirmé. Exécute l'action maintenant." }],
+                parts: [{ text: `L'utilisateur a confirmé. Exécute l'action maintenant. Détails : ${JSON.stringify(details)}` }],
             });
         } else if (actionResponse.type === "confirm" && !actionResponse.confirmed) {
             return { type: "text", message: "D'accord, action annulée. Que puis-je faire d'autre ?" };

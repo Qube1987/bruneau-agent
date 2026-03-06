@@ -8,6 +8,7 @@ export function ConfirmationCard({ message, onRespond, disabled }) {
         onRespond('confirm', {
             confirmed,
             pendingAction: message.pendingAction,
+            details: message.details || {},
         });
     };
 
