@@ -72,6 +72,8 @@ RÈGLES IMPORTANTES :
 - "centrale" ou "centrale d'alarme" fait référence au système d'intrusion
 - Quand on te dit "pile HS" ou "batterie HS", le system_type est souvent "intrusion"
 - Quand on te demande de "créer un SAV", c'est une sav_request
+- Quand tu crées un SAV, utilise d'abord list_users pour récupérer la liste des utilisateurs, puis demande à l'utilisateur via ask_user_selection à qui assigner le SAV. Inclus le assigned_user_id et assigned_user_name dans les détails de confirmation.
+- Table "users" : utilisateurs de l'équipe (id, display_name, email, role[admin/manager/technicien])
 
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
@@ -112,6 +114,7 @@ const TOOLS = [
                 system_type: { type: "STRING", description: "Type: ssi, type4, intrusion, video, controle_acces, interphone, portail, autre" },
                 problem_desc: { type: "STRING", description: "Description du problème" },
                 urgent: { type: "BOOLEAN", description: "Urgent ou non" },
+                assigned_user_id: { type: "STRING", description: "UUID de l'utilisateur assigné (obtenu via list_users)" },
             },
             required: ["client_id", "client_name", "system_type", "problem_desc"],
         },
@@ -164,6 +167,14 @@ const TOOLS = [
         },
     },
     {
+        name: "list_users",
+        description: "Lister les utilisateurs de l'équipe (techniciens, managers, admins). Utile pour savoir à qui assigner un SAV.",
+        parameters: {
+            type: "OBJECT",
+            properties: {},
+        },
+    },
+    {
         name: "ask_user_confirmation",
         description: "Demander confirmation à l'utilisateur AVANT toute action d'écriture. OBLIGATOIRE avant create_sav_request ou create_opportunity.",
         parameters: {
@@ -209,19 +220,33 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             return { clients: data || [], count: (data || []).length };
         }
 
+        case "list_users": {
+            const { data, error } = await db
+                .from("users")
+                .select("id, display_name, email, role")
+                .order("display_name");
+
+            if (error) return { error: error.message };
+            return { users: data || [], count: (data || []).length };
+        }
+
         case "create_sav_request": {
+            const insertData: any = {
+                client_id: args.client_id,
+                client_name: args.client_name,
+                phone: args.phone || null,
+                address: args.address || null,
+                system_type: args.system_type || "autre",
+                problem_desc: args.problem_desc,
+                urgent: args.urgent || false,
+                status: "nouvelle",
+            };
+            if (args.assigned_user_id) {
+                insertData.assigned_user_id = args.assigned_user_id;
+            }
             const { data, error } = await db
                 .from("sav_requests")
-                .insert({
-                    client_id: args.client_id,
-                    client_name: args.client_name,
-                    phone: args.phone || null,
-                    address: args.address || null,
-                    system_type: args.system_type || "autre",
-                    problem_desc: args.problem_desc,
-                    urgent: args.urgent || false,
-                    status: "nouvelle",
-                })
+                .insert(insertData)
                 .select("id, client_name, status, system_type, problem_desc")
                 .single();
 
@@ -423,6 +448,7 @@ async function handleConversation(body: any): Promise<any> {
                     system_type: details.system_type || "autre",
                     problem_desc: details.problem_desc || "",
                     urgent: details.urgent || false,
+                    assigned_user_id: details.assigned_user_id || null,
                 });
                 console.log("create_sav_request result:", JSON.stringify(result));
                 if (result?.success) {
