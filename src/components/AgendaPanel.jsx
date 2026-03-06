@@ -54,6 +54,40 @@ export default function AgendaPanel() {
     const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [currentUserLoaded, setCurrentUserLoaded] = useState(false);
+
+    // Auto-select current user on first expand
+    useEffect(() => {
+        if (!isExpanded || currentUserLoaded) return;
+
+        const loadCurrentUser = async () => {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+
+                // Fetch user's extrabat_code from the users table
+                const { data: userData } = await supabase
+                    .from('users')
+                    .select('extrabat_code')
+                    .eq('id', user.id)
+                    .single();
+
+                if (userData?.extrabat_code) {
+                    // Check if this code matches a team member
+                    const member = TEAM_MEMBERS.find(m => m.code === userData.extrabat_code);
+                    if (member) {
+                        setSelectedUsers([userData.extrabat_code]);
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading current user for agenda:', e);
+            } finally {
+                setCurrentUserLoaded(true);
+            }
+        };
+
+        loadCurrentUser();
+    }, [isExpanded, currentUserLoaded]);
 
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 4);
