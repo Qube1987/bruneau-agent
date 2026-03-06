@@ -682,7 +682,47 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
         // ===== CHECK STOCK (load all, score, filter) =====
         case "check_stock": {
-            const searchTerms = args.query.split(/\s+/).filter((w: string) => w.length > 1);
+            // Common product synonyms for natural language → product name mapping
+            const synonyms: Record<string, string[]> = {
+                "telecommande": ["spacecontrol", "button", "doublebutton"],
+                "télécommande": ["spacecontrol", "button", "doublebutton"],
+                "telecommandes": ["spacecontrol", "button", "doublebutton"],
+                "télécommandes": ["spacecontrol", "button", "doublebutton"],
+                "centrale": ["hub", "hub2", "hub2+"],
+                "centrales": ["hub", "hub2", "hub2+"],
+                "detecteur": ["motioncam", "motionprotect", "doorprotect", "combiprotect"],
+                "détecteur": ["motioncam", "motionprotect", "doorprotect", "combiprotect"],
+                "detecteurs": ["motioncam", "motionprotect", "doorprotect", "combiprotect"],
+                "détecteurs": ["motioncam", "motionprotect", "doorprotect", "combiprotect"],
+                "sirene": ["streetsiren", "homesiren"],
+                "sirène": ["streetsiren", "homesiren"],
+                "sirenes": ["streetsiren", "homesiren"],
+                "sirènes": ["streetsiren", "homesiren"],
+                "clavier": ["keypad"],
+                "claviers": ["keypad"],
+                "fuite": ["leaksprotect", "leak"],
+                "inondation": ["leaksprotect", "leak"],
+                "fumee": ["fireprotect"],
+                "fumée": ["fireprotect"],
+                "incendie": ["fireprotect"],
+                "camera": ["turretcam", "bulletcam"],
+                "caméra": ["turretcam", "bulletcam"],
+                "cameras": ["turretcam", "bulletcam"],
+                "caméras": ["turretcam", "bulletcam"],
+                "relais": ["relay", "multirelay", "wallswitch"],
+                "transmetteur": ["multitransmitter", "transmitter"],
+            };
+
+            const rawTerms = args.query.split(/\s+/).filter((w: string) => w.length > 1);
+            // Expand synonyms
+            const searchTerms: string[] = [];
+            for (const t of rawTerms) {
+                searchTerms.push(t);
+                const lower = t.toLowerCase();
+                if (synonyms[lower]) {
+                    searchTerms.push(...synonyms[lower]);
+                }
+            }
 
             // Load ALL stock products with subcategory/category info (< 300 products total)
             const { data: allProducts, error } = await db.from("stock_products")
@@ -691,12 +731,23 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
             if (error) return { error: error.message };
 
-            // Score each product: how many search terms match across ALL fields
+            // Build search groups: each original term + its synonyms form one group
+            const searchGroups: string[][] = [];
+            for (const t of rawTerms) {
+                const lower = t.toLowerCase();
+                const group = [lower];
+                if (synonyms[lower]) group.push(...synonyms[lower]);
+                searchGroups.push(group);
+            }
+
+            // Score each product: how many search GROUPS match (at least one term per group)
             const scored = (allProducts || []).map((p: any) => {
                 const subcat = p.stock_subcategories?.name || "";
                 const cat = p.stock_subcategories?.stock_categories?.name || "";
                 const searchable = `${p.name} ${p.marque} ${p.fournisseur} ${p.code_article} ${subcat} ${cat}`.toLowerCase();
-                const matchCount = searchTerms.filter((t: string) => searchable.includes(t.toLowerCase())).length;
+                const matchCount = searchGroups.filter(group =>
+                    group.some(term => searchable.includes(term))
+                ).length;
                 const total = (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0);
                 return {
                     id: p.id, name: p.name, code_article: p.code_article,
@@ -711,16 +762,17 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 };
             }).filter((p: any) => p._score > 0);
 
-            // Sort by score desc (products matching ALL terms first)
+            // Sort by score desc (products matching ALL groups first)
             scored.sort((a: any, b: any) => b._score - a._score);
 
-            // Prefer products matching ALL search terms; fallback to partial matches
+            // Prefer products matching ALL search groups; fallback to partial matches
+            const totalGroups = searchGroups.length;
             const maxScore = scored.length > 0 ? scored[0]._score : 0;
-            const topResults = maxScore === searchTerms.length
-                ? scored.filter((r: any) => r._score === searchTerms.length).slice(0, 20)
+            const topResults = maxScore === totalGroups
+                ? scored.filter((r: any) => r._score === totalGroups).slice(0, 20)
                 : scored.slice(0, 20);
 
-            return { products: topResults, count: topResults.length, search_terms: searchTerms };
+            return { products: topResults, count: topResults.length, search_terms: rawTerms };
         }
 
         // ===== GET STOCK ALERTS =====
@@ -1107,12 +1159,21 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
 
     const candidate = geminiResult?.candidates?.[0];
     if (!candidate?.content?.parts) {
-        console.error("Unexpected Gemini response structure:", JSON.stringify(geminiResult).substring(0, 1000));
-        // Check if there's a blockReason or other info
         const blockReason = geminiResult?.candidates?.[0]?.finishReason;
         const promptFeedback = geminiResult?.promptFeedback;
-        if (blockReason) console.error("Finish reason:", blockReason);
-        if (promptFeedback) console.error("Prompt feedback:", JSON.stringify(promptFeedback));
+        console.error("Unexpected Gemini response:", JSON.stringify(geminiResult).substring(0, 500));
+
+        // Retry once on STOP without content (intermittent Gemini issue)
+        if (blockReason === "STOP" && depth === 0) {
+            console.log("Retrying after empty STOP response...");
+            try {
+                const retryResult = await callGemini(messages, TOOLS);
+                return processGeminiResponse(retryResult, messages, depth + 1);
+            } catch (e) {
+                console.error("Retry failed:", e);
+            }
+        }
+
         return { type: "error", message: `Réponse inattendue du modèle. ${blockReason ? `(${blockReason})` : 'Réessayez.'}` };
     }
 
