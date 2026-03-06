@@ -20,21 +20,24 @@ function getDB() {
 }
 
 // --- Gemini API ---
-async function callGemini(messages: any[], tools: any[]) {
+async function callGemini(messages: any[], tools: any[], toolConfig?: any) {
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+    const requestBody: any = {
+        contents: messages,
+        tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        generationConfig: { temperature: 0.3, topP: 0.8, maxOutputTokens: 2048 },
+    };
+    if (toolConfig) requestBody.toolConfig = toolConfig;
 
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: messages,
-                tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
-                systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-                generationConfig: { temperature: 0.3, topP: 0.8, maxOutputTokens: 2048 },
-            }),
+            body: JSON.stringify(requestBody),
         }
     );
 
@@ -1018,6 +1021,27 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
 
     if (functionCalls.length === 0) {
         const text = textParts.map((p: any) => p.text).join("\n");
+        const textLower = text.toLowerCase();
+
+        // RETRY: If Gemini responded with text about creating a RDV without calling the tool, force function call
+        const isRdvRequest = textLower.includes("rendez-vous") || textLower.includes("rdv") || textLower.includes("créé") || textLower.includes("ajouté");
+        if (isRdvRequest && depth === 0) {
+            console.log("RETRY: Gemini responded with text about RDV instead of calling tool. Forcing function call...");
+            // Add a strong instruction and retry with forced function calling
+            const retryMessages = [...messages,
+            { role: "model", parts: [{ text }] },
+            { role: "user", parts: [{ text: "ERREUR: tu as répondu en TEXTE au lieu d'appeler le tool create_appointment. Tu DOIS faire un function call create_appointment maintenant. Ne réponds PAS en texte." }] }
+            ];
+            try {
+                const retryResult = await callGemini(retryMessages, TOOLS, {
+                    functionCallingConfig: { mode: "ANY", allowedFunctionNames: ["create_appointment", "get_agenda", "delete_appointment"] }
+                });
+                return processGeminiResponse(retryResult, retryMessages, depth + 1);
+            } catch (e) {
+                console.error("Retry failed:", e);
+            }
+        }
+
         return { type: "text", message: text || "Je n'ai pas compris. Pouvez-vous reformuler ?" };
     }
 
