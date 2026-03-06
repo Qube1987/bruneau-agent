@@ -28,7 +28,12 @@ async function callGemini(messages: any[], tools: any[], toolConfig?: any) {
         contents: messages,
         tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        generationConfig: { temperature: 0.3, topP: 0.8, maxOutputTokens: 2048 },
+        generationConfig: {
+            temperature: 0.3,
+            topP: 0.8,
+            maxOutputTokens: 8192,
+            thinkingConfig: { thinkingBudget: 1024 },
+        },
     };
     if (toolConfig) requestBody.toolConfig = toolConfig;
 
