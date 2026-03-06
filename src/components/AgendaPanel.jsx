@@ -98,14 +98,17 @@ export default function AgendaPanel() {
                         const apts = Array.isArray(raw) ? raw : Object.values(raw);
                         apts.forEach(apt => {
                             const objet = apt.objet || apt.titre || apt.title || apt.label || '';
-                            // Try to extract client name from various Extrabat fields
+                            // Extract client name from Extrabat data
                             let clientName = '';
-                            if (apt.rdvClients?.[0]?.nom) clientName = apt.rdvClients[0].nom;
-                            else if (apt.client_nom) clientName = apt.client_nom;
-                            else if (apt.client?.nom) clientName = apt.client.nom;
-                            else if (apt.nom_client) clientName = apt.nom_client;
-                            // If no client name found, try to parse from objet ("SAV - ClientName" pattern)
-                            else if (objet.includes(' - ')) clientName = objet.split(' - ')[0].trim();
+                            if (apt.clients && apt.clients.length > 0 && apt.clients[0].nom) {
+                                clientName = apt.clients[0].nom;
+                            } else if (apt.rdvClients?.[0]?.nom) {
+                                clientName = apt.rdvClients[0].nom;
+                            } else if (apt.client_nom) {
+                                clientName = apt.client_nom;
+                            } else if (apt.client?.nom) {
+                                clientName = apt.client.nom;
+                            }
 
                             const start = parseAptDate(apt.debut);
                             const end = parseAptDate(apt.fin);
