@@ -223,9 +223,6 @@ export default function AgendaPanel() {
             <button className="agenda-panel__toggle" onClick={() => setIsExpanded(!isExpanded)}>
                 <span>Agendas</span>
                 <span className={`agenda-panel__arrow ${isExpanded ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
-                {selectedUsers.length > 0 && !isExpanded && (
-                    <span className="agenda-panel__badge">{selectedUsers.length}</span>
-                )}
             </button>
 
             {isExpanded && (
