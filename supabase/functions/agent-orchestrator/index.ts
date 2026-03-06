@@ -473,16 +473,27 @@ async function callExtrabat(method: string, path: string, body?: any): Promise<a
     };
     if (body) opts.body = JSON.stringify(body);
 
-    const response = await fetch(url, opts);
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = text; }
+    try {
+        const response = await fetch(url, opts);
+        const text = await response.text();
+        console.log(`Extrabat response status=${response.status}, body="${text.substring(0, 500)}"`);
 
-    if (!response.ok) {
-        console.error("Extrabat API error:", response.status, data);
-        return { error: `Extrabat API error: ${response.status}` };
+        let data: any;
+        if (!text || text.trim() === "") {
+            data = { success: true, status: response.status };
+        } else {
+            try { data = JSON.parse(text); } catch { data = text; }
+        }
+
+        if (!response.ok) {
+            console.error("Extrabat API error:", response.status, data);
+            return { error: `Extrabat API error: ${response.status} - ${typeof data === 'string' ? data : JSON.stringify(data)}` };
+        }
+        return data;
+    } catch (fetchError: any) {
+        console.error("Extrabat fetch error:", fetchError);
+        return { error: `Extrabat network error: ${fetchError?.message || fetchError}` };
     }
-    return data;
 }
 
 // --- Date helper ---
@@ -816,24 +827,49 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const extrabatCode = getExtrabatCode(args.user_name);
             const userName = args.user_name || "Quentin";
 
+            // Normalize dates to Extrabat format: "YYYY-MM-DD HH:MM:SS"
+            const normalizeDate = (d: string): string => {
+                if (!d) return d;
+                // Replace T with space (ISO format → Extrabat format)
+                let normalized = d.replace("T", " ");
+                // Ensure we have seconds
+                if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(normalized)) {
+                    normalized += ":00";
+                }
+                // If only date, add time
+                if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+                    normalized += " 00:00:00";
+                }
+                return normalized;
+            };
+
+            const debut = normalizeDate(args.debut);
+            const fin = normalizeDate(args.fin);
+
+            console.log(`Creating appointment: objet="${args.objet}", debut="${debut}", fin="${fin}", user=${extrabatCode} (${userName})`);
+
             const appointmentData: any = {
                 journee: args.journee || false,
                 objet: args.objet,
-                debut: args.debut,
-                fin: args.fin,
+                debut: debut,
+                fin: fin,
                 couleur: 23061,
                 users: [{ user: parseInt(extrabatCode, 10) }],
             };
 
+            console.log("Appointment data:", JSON.stringify(appointmentData));
+
             const data = await callExtrabat("POST", `/v1/agenda/rendez-vous`, appointmentData);
 
-            if (data.error) return { error: data.error };
+            console.log("Extrabat create appointment response:", JSON.stringify(data));
+
+            if (data?.error) return { error: data.error };
 
             return {
                 success: true,
-                message: `Rendez-vous "${args.objet}" créé pour ${userName}`,
-                appointment_id: data.id || data,
-                details: { objet: args.objet, debut: args.debut, fin: args.fin, user: userName },
+                message: `Rendez-vous "${args.objet}" créé pour ${userName} le ${debut}`,
+                appointment_id: data?.id || data,
+                details: { objet: args.objet, debut, fin, user: userName },
             };
         }
 
