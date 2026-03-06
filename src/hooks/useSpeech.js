@@ -108,8 +108,33 @@ export function useSpeechSynthesis() {
     const speak = useCallback((text) => {
         if (!('speechSynthesis' in window)) return;
 
+        // Clean text for speech: remove emojis, markdown, and special chars
+        let cleanText = text
+            // Remove emojis (comprehensive Unicode emoji ranges)
+            .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+            .replace(/[\u{1F300}-\u{1F5FF}]/gu, '') // Symbols & Pictographs
+            .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport & Map
+            .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
+            .replace(/[\u{2600}-\u{26FF}]/gu, '')   // Misc symbols
+            .replace(/[\u{2700}-\u{27BF}]/gu, '')   // Dingbats
+            .replace(/[\u{FE00}-\u{FE0F}]/gu, '')   // Variation selectors
+            .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental symbols
+            .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '') // Chess symbols
+            .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '') // Symbols extended
+            .replace(/[\u{200D}]/gu, '')             // Zero width joiner
+            .replace(/[⚠️✅❌📋📊📦🔧🎙️🤖⬆️⬇️➡️⭐🔴🟢🟡🔵]/g, '') // Common specific emojis
+            // Remove markdown bold markers
+            .replace(/\*\*/g, '')
+            .replace(/__/g, '')
+            // Remove bullet characters
+            .replace(/^\s*[-•]\s+/gm, '')
+            // Clean up multiple spaces and extra whitespace
+            .replace(/\s{2,}/g, ' ')
+            .replace(/\|\s*/g, ', ')
+            .trim();
+
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
+        const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = 'fr-FR';
         utterance.rate = 1.05;
         utterance.pitch = 1;
