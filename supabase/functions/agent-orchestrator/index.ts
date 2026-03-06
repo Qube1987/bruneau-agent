@@ -405,9 +405,12 @@ async function handleConversation(body: any): Promise<any> {
     // Handle HITL action responses
     if (actionResponse) {
         if (actionResponse.type === "confirm" && actionResponse.confirmed) {
+            const detailsContext = actionResponse.details
+                ? `\nDétails confirmés par l'utilisateur : ${JSON.stringify(actionResponse.details)}`
+                : "";
             geminiMessages.push({
                 role: "user",
-                parts: [{ text: "L'utilisateur a confirmé. Exécute l'action maintenant." }],
+                parts: [{ text: `L'utilisateur a confirmé. Exécute l'action maintenant avec les données suivantes.${detailsContext}` }],
             });
         } else if (actionResponse.type === "confirm" && !actionResponse.confirmed) {
             return { type: "text", message: "D'accord, action annulée. Que puis-je faire d'autre ?" };
