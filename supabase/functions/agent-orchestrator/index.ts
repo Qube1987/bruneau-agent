@@ -1196,7 +1196,24 @@ async function handleConversation(body: any): Promise<any> {
     }
 
     try {
-        const geminiResult = await callGemini(cleanMessages, TOOLS);
+        // Detect if the user message is about creating/managing an appointment
+        const lastUserMsg = (message || "").toLowerCase();
+        const hasActionVerb = /\b(ajoute|ajout|cr[eé][eé]|planifie|programme|mets|mettre|supprime|pose|fixe|cale|bloque|r[eé]serve|pr[eé]vois|note)\b/.test(lastUserMsg);
+        const hasRdvKeyword = /\b(rdv|rendez|agenda|coiffeur|clinique|r[eé]union|meeting|rendez-vous|dentiste|m[eé]decin|docteur|visite|cr[eé]neau|intervention)\b/.test(lastUserMsg);
+        const isAgendaRelated = hasActionVerb && hasRdvKeyword;
+
+        let toolConfig = undefined;
+        if (isAgendaRelated) {
+            console.log("FORCED FUNCTION CALLING: Detected appointment request in message:", lastUserMsg.substring(0, 100));
+            toolConfig = {
+                functionCallingConfig: {
+                    mode: "ANY",
+                    allowedFunctionNames: ["create_appointment", "delete_appointment", "get_agenda"]
+                }
+            };
+        }
+
+        const geminiResult = await callGemini(cleanMessages, TOOLS, toolConfig);
         return processGeminiResponse(geminiResult, cleanMessages);
     } catch (error) {
         console.error("Gemini call failed:", error);
