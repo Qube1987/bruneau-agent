@@ -77,6 +77,14 @@ RÈGLES IMPORTANTES :
 - Pour search_client, utilise UNIQUEMENT le nom de famille (sans civilité M., Mme, etc.). Exemple : pour "M. Pages", cherche "Pages"
 - Table "users" : utilisateurs de l'équipe (id, display_name, email, role[admin/manager/technicien])
 
+RECHERCHE DE CLIENTS :
+- search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
+- Chaque client retourné a un champ "source" ("supabase" ou "extrabat")
+- Les clients "supabase" ont un UUID valide comme id, utilisable directement pour créer des SAV ou opportunités
+- Les clients "extrabat" ont un id au format "extrabat-XXXX" — Ce n'est PAS un UUID valide ! Tu ne peux PAS l'utiliser directement dans client_id pour create_sav_request ou create_opportunity
+- Si l'utilisateur choisit un client "extrabat", précise-lui que ce client n'est pas encore dans la base locale et que le SAV/opportunité ne peut pas être lié automatiquement. Propose de créer le SAV avec les infos du client (nom, téléphone, adresse) mais SANS client_id (passe null)
+- Quand tu proposes la liste des clients à l'utilisateur via ask_user_selection, indique la source. Exemple : "Pages Jean (Supabase)" ou "Pages Jean (Extrabat)"
+
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
 - Table "sav_requests" : demandes SAV (id, client_id FK→clients, client_name, phone, address, system_type, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority)
@@ -91,7 +99,7 @@ Types de systèmes : ssi (détection incendie), type4 (alarme incendie type 4), 
 const TOOLS = [
     {
         name: "search_client",
-        description: "Rechercher un client par nom dans la base unifiée. Retourne les clients correspondants avec leurs coordonnées.",
+        description: "Rechercher un client par nom. Cherche d'abord dans la base locale Supabase, puis dans Extrabat si pas assez de résultats. Retourne les clients correspondants avec leurs coordonnées et la source (supabase ou extrabat).",
         parameters: {
             type: "OBJECT",
             properties: {
@@ -109,7 +117,7 @@ const TOOLS = [
         parameters: {
             type: "OBJECT",
             properties: {
-                client_id: { type: "STRING", description: "UUID du client (obtenu via search_client)" },
+                client_id: { type: "STRING", description: "UUID du client Supabase (obtenu via search_client, source 'supabase'). Null si client Extrabat uniquement." },
                 client_name: { type: "STRING", description: "Nom du client" },
                 phone: { type: "STRING", description: "Téléphone (optionnel)" },
                 address: { type: "STRING", description: "Adresse (optionnel)" },
@@ -118,7 +126,7 @@ const TOOLS = [
                 urgent: { type: "BOOLEAN", description: "Urgent ou non" },
                 assigned_user_id: { type: "STRING", description: "UUID de l'utilisateur assigné (obtenu via list_users)" },
             },
-            required: ["client_id", "client_name", "system_type", "problem_desc"],
+            required: ["client_name", "system_type", "problem_desc"],
         },
     },
     {
@@ -203,6 +211,72 @@ const TOOLS = [
     },
 ];
 
+// --- Extrabat API search helper ---
+async function searchExtrabat(query: string): Promise<any[]> {
+    const apiKey = Deno.env.get("EXTRABAT_API_KEY");
+    const securityKey = Deno.env.get("EXTRABAT_SECURITY");
+
+    if (!apiKey || !securityKey) {
+        console.warn("Extrabat API credentials not configured, skipping Extrabat search");
+        return [];
+    }
+
+    const url = `https://api.extrabat.com/v2/clients?q=${encodeURIComponent(query)}&include=telephone,adresse`;
+    console.log("Searching Extrabat:", url);
+
+    const response = await fetch(url, {
+        method: "GET",
+        headers: {
+            "Content-Type": "application/json",
+            "X-EXTRABAT-API-KEY": apiKey,
+            "X-EXTRABAT-SECURITY": securityKey,
+        },
+    });
+
+    if (!response.ok) {
+        console.error("Extrabat API error:", response.status, await response.text());
+        return [];
+    }
+
+    const data = await response.json();
+    const clients = Array.isArray(data) ? data : (data.data || data.clients || []);
+
+    // Normalize Extrabat client data to match our format
+    return clients.map((client: any) => {
+        let telephone = "";
+        if (client.telephones && Array.isArray(client.telephones) && client.telephones.length > 0) {
+            telephone = client.telephones[0].number || client.telephones[0].numero || "";
+        }
+
+        let adresse = "";
+        let code_postal = "";
+        let ville = "";
+        if (client.adresses && Array.isArray(client.adresses) && client.adresses.length > 0) {
+            const addr = client.adresses[0];
+            adresse = addr.description || addr.adresse || addr.rue || "";
+            code_postal = addr.codePostal || addr.code_postal || "";
+            ville = addr.ville || "";
+        }
+
+        return {
+            id: `extrabat-${client.id}`,
+            extrabat_id: client.id,
+            nom: client.nom || "",
+            prenom: client.prenom || "",
+            email: client.email || "",
+            telephone,
+            adresse,
+            code_postal,
+            ville,
+            civilite: client.civilite?.libelle || "",
+            entreprise: client.raisonSociale || "",
+            client_type: client.civilite?.professionnel ? "professionnel" : "particulier",
+            actif: true,
+            source: "extrabat",
+        };
+    }).slice(0, 10);
+}
+
 // --- Tool execution ---
 async function executeTool(toolName: string, args: any): Promise<any> {
     const db = getDB();
@@ -231,7 +305,26 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 .limit(10);
 
             if (error) return { error: error.message };
-            return { clients: data || [], count: (data || []).length };
+
+            const supabaseClients = (data || []).map((c: any) => ({ ...c, source: "supabase" }));
+
+            // If Supabase returned few or no results, also search Extrabat
+            if (supabaseClients.length < 3) {
+                try {
+                    const extrabatClients = await searchExtrabat(cleanedQuery);
+                    // Deduplicate: exclude Extrabat clients already found in Supabase (by nom match)
+                    const supabaseNoms = new Set(supabaseClients.map((c: any) => (c.nom || "").toLowerCase()));
+                    const uniqueExtrabat = extrabatClients.filter(
+                        (c: any) => !supabaseNoms.has((c.nom || "").toLowerCase())
+                    );
+                    const combined = [...supabaseClients, ...uniqueExtrabat].slice(0, 15);
+                    return { clients: combined, count: combined.length };
+                } catch (extrabatError) {
+                    console.error("Extrabat search failed (fallback to Supabase only):", extrabatError);
+                }
+            }
+
+            return { clients: supabaseClients, count: supabaseClients.length };
         }
 
         case "list_users": {
@@ -245,8 +338,9 @@ async function executeTool(toolName: string, args: any): Promise<any> {
         }
 
         case "create_sav_request": {
+            // Handle client_id: skip if null, empty, or starts with "extrabat-" (not a valid Supabase UUID)
+            const validClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
             const insertData: any = {
-                client_id: args.client_id,
                 client_name: args.client_name,
                 phone: args.phone || null,
                 address: args.address || null,
@@ -255,6 +349,9 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 urgent: args.urgent || false,
                 status: "nouvelle",
             };
+            if (validClientId) {
+                insertData.client_id = validClientId;
+            }
             if (args.assigned_user_id) {
                 insertData.assigned_user_id = args.assigned_user_id;
             }
@@ -461,9 +558,9 @@ async function handleConversation(body: any): Promise<any> {
             const isSav = pending.includes("sav");
             const isOpportunity = pending.includes("opportunit");
 
-            if (isSav && details.client_id) {
+            if (isSav && details.client_name) {
                 const result = await executeTool("create_sav_request", {
-                    client_id: details.client_id,
+                    client_id: details.client_id || null,
                     client_name: details.client_name || "",
                     phone: details.phone || null,
                     address: details.address || null,
