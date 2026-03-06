@@ -408,7 +408,13 @@ async function handleConversation(body: any): Promise<any> {
             // Direct execution: use the confirmed details to execute the action
             // without re-calling Gemini (which loses tool call context)
             const details = actionResponse.details || {};
-            if (actionResponse.pendingAction === "create_sav" && details.client_id) {
+            const pending = (actionResponse.pendingAction || "").toLowerCase();
+            console.log("HITL confirm received:", JSON.stringify({ pending, details }));
+
+            const isSav = pending.includes("sav");
+            const isOpportunity = pending.includes("opportunit");
+
+            if (isSav && details.client_id) {
                 const result = await executeTool("create_sav_request", {
                     client_id: details.client_id,
                     client_name: details.client_name || "",
@@ -418,12 +424,13 @@ async function handleConversation(body: any): Promise<any> {
                     problem_desc: details.problem_desc || "",
                     urgent: details.urgent || false,
                 });
+                console.log("create_sav_request result:", JSON.stringify(result));
                 if (result?.success) {
                     return { type: "success", message: `SAV créé avec succès pour ${details.client_name || "le client"}.` };
                 }
                 return { type: "error", message: `Erreur lors de la création du SAV : ${result?.error || "erreur inconnue"}` };
             }
-            if (actionResponse.pendingAction === "create_opportunity" && details.client_id) {
+            if (isOpportunity && details.client_id) {
                 const result = await executeTool("create_opportunity", {
                     client_id: details.client_id,
                     titre: details.titre || "",
@@ -431,12 +438,14 @@ async function handleConversation(body: any): Promise<any> {
                     montant_estime: details.montant_estime || null,
                     suivi_par: details.suivi_par || "Quentin",
                 });
+                console.log("create_opportunity result:", JSON.stringify(result));
                 if (result?.success) {
                     return { type: "success", message: `Opportunité créée avec succès pour ${details.client_name || "le client"}.` };
                 }
                 return { type: "error", message: `Erreur lors de la création de l'opportunité : ${result?.error || "erreur inconnue"}` };
             }
             // Fallback: re-call Gemini with context (for unknown action types)
+            console.log("HITL confirm fallback — no direct execution match");
             geminiMessages.push({
                 role: "user",
                 parts: [{ text: `L'utilisateur a confirmé. Exécute l'action maintenant. Détails : ${JSON.stringify(details)}` }],
