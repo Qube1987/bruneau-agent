@@ -85,8 +85,13 @@ AGENDA / RENDEZ-VOUS :
 - Quand on te demande l'agenda de Paul, utilise directement son code (218599) sans demander de précision
 - Pour les dates : "demain" = jour suivant, "lundi prochain" = prochain lundi, "cet après-midi" = aujourd'hui 14:00-18:00, "cette semaine" = du lundi au vendredi de la semaine courante
 - La date/heure actuelle est fournie dans le contexte. Utilise-la pour calculer les dates relatives.
-- FLUX DE CRÉATION DE RDV : 1) Interpréter la date/heure 2) ask_user_confirmation avec les détails 3) create_appointment
-- Pour les RDV, le format de date est "YYYY-MM-DD HH:MM:SS"
+- FLUX DE CRÉATION DE RDV : 
+  1) Interpréter la date/heure demandée
+  2) Appeler ask_user_confirmation avec action_type="create_rdv" et details JSON contenant OBLIGATOIREMENT: {"objet": "...", "debut": "YYYY-MM-DD HH:MM:SS", "fin": "YYYY-MM-DD HH:MM:SS", "user_name": "Quentin"}
+  3) Après confirmation, create_appointment sera appelé automatiquement
+- Pour les RDV, le format de date est TOUJOURS "YYYY-MM-DD HH:MM:SS" (avec espace, PAS de T)
+- Si l'utilisateur ne précise pas la durée, mettre 1h par défaut
+- IMPORTANT: le champ "objet" et "debut" dans les details de ask_user_confirmation sont OBLIGATOIRES pour que la création fonctionne
 
 RECHERCHE DE CLIENTS :
 - search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
@@ -1076,21 +1081,27 @@ async function handleConversation(body: any): Promise<any> {
                 return { type: "error", message: `Erreur modification opportunité : ${result?.error || "inconnue"}` };
             }
 
-            // Direct appointment creation
-            if ((pending.includes("appointment") || pending.includes("rdv") || pending.includes("rendez")) && details.objet) {
-                const result = await executeTool("create_appointment", {
-                    user_name: details.user_name || null,
-                    objet: details.objet,
-                    debut: details.debut,
-                    fin: details.fin,
-                    journee: details.journee || false,
-                });
-                if (result?.success) return { type: "success", message: result.message || `Rendez-vous créé avec succès.` };
-                return { type: "error", message: `Erreur création RDV : ${result?.error || "inconnue"}` };
+            // Direct appointment creation - broad matching
+            if (
+                (pending.includes("appointment") || pending.includes("rdv") || pending.includes("rendez") || pending.includes("agenda") || pending.includes("coiffeur") || pending.includes("clinique"))
+                || (details.debut && details.objet) // fallback: if details have debut + objet, it's an appointment
+            ) {
+                if (details.objet && details.debut) {
+                    console.log("HITL: Creating appointment from details:", JSON.stringify(details));
+                    const result = await executeTool("create_appointment", {
+                        user_name: details.user_name || null,
+                        objet: details.objet,
+                        debut: details.debut,
+                        fin: details.fin || details.debut, // fallback: same as debut if missing
+                        journee: details.journee || false,
+                    });
+                    if (result?.success) return { type: "success", message: result.message || `Rendez-vous créé avec succès.` };
+                    return { type: "error", message: `Erreur création RDV : ${result?.error || "inconnue"}` };
+                }
             }
 
             // Direct appointment deletion
-            if (pending.includes("delete") && pending.includes("appointment") && details.appointment_id) {
+            if (pending.includes("delete") && (pending.includes("appointment") || pending.includes("rdv")) && details.appointment_id) {
                 const result = await executeTool("delete_appointment", {
                     appointment_id: details.appointment_id,
                 });
@@ -1098,8 +1109,8 @@ async function handleConversation(body: any): Promise<any> {
                 return { type: "error", message: `Erreur suppression RDV : ${result?.error || "inconnue"}` };
             }
 
-            // Fallback
-            console.log("HITL confirm fallback — no direct execution match");
+            // Fallback - send back to Gemini with confirmation context
+            console.log("HITL confirm fallback — no direct execution match. pending:", pending, "details:", JSON.stringify(details));
             geminiMessages.push({
                 role: "user",
                 parts: [{ text: `L'utilisateur a confirmé. Exécute l'action maintenant. Détails : ${JSON.stringify(details)}` }],
