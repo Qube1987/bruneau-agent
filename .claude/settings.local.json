@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx supabase functions deploy agent-orchestrator --no-verify-jwt)"
+    ]
+  }
+}
