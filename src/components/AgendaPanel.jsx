@@ -97,13 +97,24 @@ export default function AgendaPanel() {
                         const raw = resp.data.data;
                         const apts = Array.isArray(raw) ? raw : Object.values(raw);
                         apts.forEach(apt => {
-                            const title = apt.objet || apt.titre || apt.title || apt.label || '(sans titre)';
+                            const objet = apt.objet || apt.titre || apt.title || apt.label || '';
+                            // Try to extract client name from various Extrabat fields
+                            let clientName = '';
+                            if (apt.rdvClients?.[0]?.nom) clientName = apt.rdvClients[0].nom;
+                            else if (apt.client_nom) clientName = apt.client_nom;
+                            else if (apt.client?.nom) clientName = apt.client.nom;
+                            else if (apt.nom_client) clientName = apt.nom_client;
+                            // If no client name found, try to parse from objet ("SAV - ClientName" pattern)
+                            else if (objet.includes(' - ')) clientName = objet.split(' - ')[0].trim();
+
                             const start = parseAptDate(apt.debut);
                             const end = parseAptDate(apt.fin);
                             if (start && end) {
                                 allApts.push({
                                     ...apt,
-                                    _title: title,
+                                    _clientName: clientName,
+                                    _objet: objet,
+                                    _title: clientName || objet || '(sans titre)',
                                     _userCode: userCode,
                                     _userName: member?.name || userCode,
                                     _color: member?.color || '#6c5ce7',
@@ -192,16 +203,13 @@ export default function AgendaPanel() {
     const timeLabels = Array.from({ length: TOTAL_HOURS }, (_, i) => HOUR_START + i);
 
     return (
-        <div className="agenda-panel">
-            <button className="agenda-panel__header" onClick={() => setIsExpanded(!isExpanded)}>
-                <div className="agenda-panel__header-left">
-                    <span className="agenda-panel__icon">📅</span>
-                    <span className="agenda-panel__title">Agendas</span>
-                    {selectedUsers.length > 0 && !isExpanded && (
-                        <span className="agenda-panel__badge">{selectedUsers.length}</span>
-                    )}
-                </div>
-                <span className={`agenda-panel__chevron ${isExpanded ? 'agenda-panel__chevron--open' : ''}`}>▾</span>
+        <div className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''}`}>
+            <button className="agenda-panel__toggle" onClick={() => setIsExpanded(!isExpanded)}>
+                <span>Agenda</span>
+                <span className={`agenda-panel__arrow ${isExpanded ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
+                {selectedUsers.length > 0 && !isExpanded && (
+                    <span className="agenda-panel__badge">{selectedUsers.length}</span>
+                )}
             </button>
 
             {isExpanded && (
@@ -307,10 +315,11 @@ export default function AgendaPanel() {
                                                                 background: `${apt._color}25`,
                                                                 borderLeftColor: apt._color,
                                                             }}
-                                                            title={`${apt._title}\n${apt._userName}\n${startStr} → ${endStr}`}
+                                                            title={`${apt._clientName ? apt._clientName + '\n' : ''}${apt._objet}\n${apt._userName}\n${startStr} → ${endStr}`}
                                                         >
-                                                            <div className="agenda-timeline__apt-time">{startStr} - {endStr}</div>
-                                                            <div className="agenda-timeline__apt-title">{apt._title}</div>
+                                                            <div className="agenda-timeline__apt-time">{startStr}</div>
+                                                            {apt._clientName && <div className="agenda-timeline__apt-client">{apt._clientName}</div>}
+                                                            <div className="agenda-timeline__apt-title">{apt._objet}</div>
                                                             {selectedUsers.length > 1 && (
                                                                 <div className="agenda-timeline__apt-user" style={{ color: apt._color }}>{apt._userName}</div>
                                                             )}

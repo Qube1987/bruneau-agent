@@ -753,68 +753,60 @@ body {
 
 /* ===== Agenda Panel ===== */
 .agenda-panel {
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
   flex-shrink: 0;
 }
 
-.agenda-panel__header {
-  display: flex;
+.agenda-panel--expanded {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.agenda-panel__toggle {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: var(--space-sm) var(--space-md);
-  background: none;
-  border: none;
-  color: var(--text-primary);
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   cursor: pointer;
   font-family: var(--font-family);
-  transition: background var(--transition-fast);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  margin: 0 var(--space-md) var(--space-xs);
 }
 
-.agenda-panel__header:hover {
-  background: var(--bg-glass);
+.agenda-panel__toggle:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+  border-color: var(--border-accent);
 }
 
-.agenda-panel__header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
+.agenda-panel__arrow {
+  font-size: 0.7rem;
+  transition: transform var(--transition-base);
 }
 
-.agenda-panel__icon {
-  font-size: var(--font-lg);
-}
-
-.agenda-panel__title {
-  font-size: var(--font-sm);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.agenda-panel__arrow--open {
+  transform: rotate(180deg);
 }
 
 .agenda-panel__badge {
   background: var(--accent);
   color: white;
-  font-size: 0.65rem;
+  font-size: 0.55rem;
   font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-  min-width: 18px;
+  padding: 0px 5px;
+  border-radius: 8px;
+  min-width: 14px;
   text-align: center;
-}
-
-.agenda-panel__chevron {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  transition: transform var(--transition-base);
-}
-
-.agenda-panel__chevron--open {
-  transform: rotate(180deg);
+  line-height: 1.4;
 }
 
 .agenda-panel__content {
-  padding: 0 var(--space-md) var(--space-md);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
   animation: fadeInUp 200ms ease;
   display: flex;
   flex-direction: column;
@@ -1101,14 +1093,25 @@ body {
 }
 
 .agenda-timeline__apt-title {
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.25;
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1.2;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.agenda-timeline__apt-client {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .agenda-timeline__apt-user {
