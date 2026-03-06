@@ -1,3 +1,5 @@
+import { StockCard } from './StockCard';
+
 export function ChatMessage({ message }) {
     const isUser = message.role === 'user';
 
@@ -38,10 +40,15 @@ export function ChatMessage({ message }) {
                 {isUser ? (
                     message.content
                 ) : (
-                    <div
-                        className="message__formatted"
-                        dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-                    />
+                    <>
+                        <div
+                            className="message__formatted"
+                            dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
+                        />
+                        {message.stockProducts && message.stockProducts.length > 0 && (
+                            <StockCard products={message.stockProducts} />
+                        )}
+                    </>
                 )}
             </div>
         </div>

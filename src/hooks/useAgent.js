@@ -122,6 +122,7 @@ export function useAgent() {
                     role: 'agent',
                     content: result.message || result.content || 'Je n\'ai pas compris.',
                     id: Date.now().toString(),
+                    stockProducts: result.stockProducts || null,
                 };
                 addMessage(agentMsg);
                 conversationRef.current.push({ role: 'assistant', content: agentMsg.content });

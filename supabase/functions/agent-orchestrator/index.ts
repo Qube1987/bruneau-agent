@@ -1229,11 +1229,18 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
     const modelParts: any[] = [];
     const responseParts: any[] = [];
     let hitlResult: any = null;
+    let stockProducts: any[] | null = null;
 
     for (const part of functionCalls) {
         const { name, args } = part.functionCall;
         const result = await executeTool(name, args || {});
         if (result?._hitl) { delete result._hitl; hitlResult = result; continue; }
+
+        // Capture stock products data for frontend rendering
+        if (name === "check_stock" && result?.products) {
+            stockProducts = result.products;
+        }
+
         modelParts.push({ functionCall: { name, args: args || {} } });
         responseParts.push({ functionResponse: { name, response: result } });
     }
@@ -1245,7 +1252,12 @@ async function processGeminiResponse(geminiResult: any, messages: any[], depth =
         messages.push({ role: "user", parts: responseParts });
         try {
             const followUp = await callGemini(messages, TOOLS);
-            return processGeminiResponse(followUp, messages, depth + 1);
+            const result = await processGeminiResponse(followUp, messages, depth + 1);
+            // Attach stock products to the response if available
+            if (stockProducts && result.type !== "error") {
+                result.stockProducts = stockProducts;
+            }
+            return result;
         } catch (error) {
             console.error("Gemini follow-up failed:", error);
             return { type: "error", message: "Erreur lors du traitement." };
@@ -1346,6 +1358,19 @@ async function handleConversation(body: any): Promise<any> {
                 });
                 if (result?.success) return { type: "success", message: result.message || `Rendez-vous supprimé.` };
                 return { type: "error", message: `Erreur suppression RDV : ${result?.error || "inconnue"}` };
+            }
+
+            // Direct stock update
+            if (pending.includes("stock") && (details.product_id || details.product_name)) {
+                const result = await executeTool("update_stock_quantity", {
+                    product_id: details.product_id,
+                    product_name: details.product_name,
+                    location: details.location || "depot",
+                    quantity_change: details.quantity_change,
+                    comment: details.comment || "Modification via agent",
+                });
+                if (result?.success) return { type: "success", message: result.message };
+                return { type: "error", message: `Erreur modification stock : ${result?.error || "inconnue"}` };
             }
 
             // Fallback - send back to Gemini with confirmation context
