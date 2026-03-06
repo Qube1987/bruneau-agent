@@ -11,6 +11,11 @@ const TEAM_MEMBERS = [
 const DAYS_FR = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
+const HOUR_START = 7;
+const HOUR_END = 19;
+const HOUR_HEIGHT = 40; // px per hour
+const TOTAL_HOURS = HOUR_END - HOUR_START;
+
 function getWeekStart(date) {
     const d = new Date(date);
     const day = d.getDay();
@@ -36,10 +41,11 @@ function isSameDay(d1, d2) {
 function parseAptDate(dateStr) {
     if (!dateStr) return null;
     try {
-        // Handle both "YYYY-MM-DD HH:MM:SS" and ISO format
         return new Date(dateStr.replace(' ', 'T'));
     } catch { return null; }
 }
+
+function pad2(n) { return String(n).padStart(2, '0'); }
 
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -72,7 +78,6 @@ export default function AgendaPanel() {
         setLoading(true);
         try {
             const allApts = [];
-
             for (const userCode of selectedUsers) {
                 const member = TEAM_MEMBERS.find(m => m.code === userCode);
                 try {
@@ -91,19 +96,21 @@ export default function AgendaPanel() {
                     if (resp.data?.success && resp.data.data) {
                         const raw = resp.data.data;
                         const apts = Array.isArray(raw) ? raw : Object.values(raw);
-                        console.log(`Agenda ${member?.name}: ${apts.length} RDV, sample:`, apts[0]);
                         apts.forEach(apt => {
-                            // Extrabat returns objet/titre — map both
                             const title = apt.objet || apt.titre || apt.title || apt.label || '(sans titre)';
-                            allApts.push({
-                                ...apt,
-                                _title: title,
-                                _userCode: userCode,
-                                _userName: member?.name || userCode,
-                                _color: member?.color || '#6c5ce7',
-                                _start: parseAptDate(apt.debut),
-                                _end: parseAptDate(apt.fin),
-                            });
+                            const start = parseAptDate(apt.debut);
+                            const end = parseAptDate(apt.fin);
+                            if (start && end) {
+                                allApts.push({
+                                    ...apt,
+                                    _title: title,
+                                    _userCode: userCode,
+                                    _userName: member?.name || userCode,
+                                    _color: member?.color || '#6c5ce7',
+                                    _start: start,
+                                    _end: end,
+                                });
+                            }
                         });
                     }
                 } catch (e) {
@@ -124,28 +131,65 @@ export default function AgendaPanel() {
         }
     }, [isExpanded, selectedUsers, weekStart, fetchAppointments]);
 
-    const goToPrev = () => {
-        const d = new Date(weekStart);
-        d.setDate(d.getDate() - 7);
-        setWeekStart(d);
-    };
-
-    const goToNext = () => {
-        const d = new Date(weekStart);
-        d.setDate(d.getDate() + 7);
-        setWeekStart(d);
-    };
-
+    const goToPrev = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); };
+    const goToNext = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); };
     const goToToday = () => setWeekStart(getWeekStart(new Date()));
 
-    // Group appointments by day — only show at start hour, not every hour
     const getAptsForDay = (day) => {
         return appointments
             .filter(apt => apt._start && isSameDay(apt._start, day))
             .sort((a, b) => a._start - b._start);
     };
 
+    // Calculate position and height of an appointment block
+    const getAptStyle = (apt) => {
+        const startHours = apt._start.getHours() + apt._start.getMinutes() / 60;
+        const endHours = apt._end.getHours() + apt._end.getMinutes() / 60;
+        const top = Math.max(0, (startHours - HOUR_START)) * HOUR_HEIGHT;
+        const height = Math.max(HOUR_HEIGHT * 0.4, (endHours - startHours) * HOUR_HEIGHT);
+        return { top: `${top}px`, height: `${height}px` };
+    };
+
+    // Detect overlapping appointments and assign columns
+    const layoutAptsForDay = (dayApts) => {
+        if (dayApts.length === 0) return [];
+
+        const laid = dayApts.map(apt => ({
+            apt,
+            col: 0,
+            totalCols: 1,
+        }));
+
+        // Simple greedy column assignment
+        for (let i = 0; i < laid.length; i++) {
+            const usedCols = new Set();
+            for (let j = 0; j < i; j++) {
+                // Check overlap
+                if (laid[j].apt._start < laid[i].apt._end && laid[j].apt._end > laid[i].apt._start) {
+                    usedCols.add(laid[j].col);
+                }
+            }
+            let col = 0;
+            while (usedCols.has(col)) col++;
+            laid[i].col = col;
+        }
+
+        // Compute max overlapping columns for each group
+        for (let i = 0; i < laid.length; i++) {
+            let maxCol = laid[i].col;
+            for (let j = 0; j < laid.length; j++) {
+                if (i !== j && laid[j].apt._start < laid[i].apt._end && laid[j].apt._end > laid[i].apt._start) {
+                    maxCol = Math.max(maxCol, laid[j].col);
+                }
+            }
+            laid[i].totalCols = maxCol + 1;
+        }
+
+        return laid;
+    };
+
     const today = new Date();
+    const timeLabels = Array.from({ length: TOTAL_HOURS }, (_, i) => HOUR_START + i);
 
     return (
         <div className="agenda-panel">
@@ -189,50 +233,95 @@ export default function AgendaPanel() {
                         ))}
                     </div>
 
-                    {/* Calendar — simple list view per day */}
+                    {/* Timeline Calendar */}
                     {selectedUsers.length === 0 ? (
                         <div className="agenda-panel__empty">
                             <span>📅</span>
                             <p>Cochez un ou plusieurs membres pour afficher leurs agendas</p>
                         </div>
                     ) : (
-                        <div className="agenda-panel__week">
-                            {weekDays.map((day, i) => {
-                                const isToday = isSameDay(day, today);
-                                const dayApts = getAptsForDay(day);
-                                return (
-                                    <div key={i} className={`agenda-panel__day ${isToday ? 'agenda-panel__day--today' : ''}`}>
-                                        <div className="agenda-panel__day-header">
-                                            <span className="agenda-panel__day-name">{DAYS_FR[day.getDay()]}</span>
-                                            <span className="agenda-panel__day-num">{day.getDate()}</span>
-                                        </div>
-                                        <div className="agenda-panel__day-list">
-                                            {dayApts.length === 0 ? (
-                                                <div className="agenda-panel__no-apt">—</div>
-                                            ) : (
-                                                dayApts.map((apt, ai) => {
-                                                    const startH = apt._start ? `${String(apt._start.getHours()).padStart(2, '0')}:${String(apt._start.getMinutes()).padStart(2, '0')}` : '';
-                                                    const endH = apt._end ? `${String(apt._end.getHours()).padStart(2, '0')}:${String(apt._end.getMinutes()).padStart(2, '0')}` : '';
+                        <div className="agenda-timeline">
+                            <div className="agenda-timeline__grid">
+                                {/* Time gutter */}
+                                <div className="agenda-timeline__gutter">
+                                    <div className="agenda-timeline__gutter-header" />
+                                    <div className="agenda-timeline__gutter-body" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
+                                        {timeLabels.map(h => (
+                                            <div key={h} className="agenda-timeline__time-label" style={{ top: `${(h - HOUR_START) * HOUR_HEIGHT}px` }}>
+                                                {h}:00
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Day columns */}
+                                {weekDays.map((day, di) => {
+                                    const isToday = isSameDay(day, today);
+                                    const dayApts = getAptsForDay(day);
+                                    const laidOut = layoutAptsForDay(dayApts);
+
+                                    // Current time indicator
+                                    let nowIndicatorTop = null;
+                                    if (isToday) {
+                                        const nowH = today.getHours() + today.getMinutes() / 60;
+                                        if (nowH >= HOUR_START && nowH <= HOUR_END) {
+                                            nowIndicatorTop = (nowH - HOUR_START) * HOUR_HEIGHT;
+                                        }
+                                    }
+
+                                    return (
+                                        <div key={di} className={`agenda-timeline__day ${isToday ? 'agenda-timeline__day--today' : ''}`}>
+                                            <div className={`agenda-timeline__day-header ${isToday ? 'agenda-timeline__day-header--today' : ''}`}>
+                                                <span className="agenda-timeline__day-name">{DAYS_FR[day.getDay()]}</span>
+                                                <span className={`agenda-timeline__day-num ${isToday ? 'agenda-timeline__day-num--today' : ''}`}>{day.getDate()}</span>
+                                            </div>
+                                            <div className="agenda-timeline__day-body" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
+                                                {/* Hour grid lines */}
+                                                {timeLabels.map(h => (
+                                                    <div key={h} className="agenda-timeline__hour-line" style={{ top: `${(h - HOUR_START) * HOUR_HEIGHT}px` }} />
+                                                ))}
+
+                                                {/* Current time red line */}
+                                                {nowIndicatorTop !== null && (
+                                                    <div className="agenda-timeline__now-line" style={{ top: `${nowIndicatorTop}px` }}>
+                                                        <div className="agenda-timeline__now-dot" />
+                                                    </div>
+                                                )}
+
+                                                {/* Appointment blocks */}
+                                                {laidOut.map(({ apt, col, totalCols }, ai) => {
+                                                    const style = getAptStyle(apt);
+                                                    const widthPct = 100 / totalCols;
+                                                    const leftPct = col * widthPct;
+                                                    const startStr = `${pad2(apt._start.getHours())}:${pad2(apt._start.getMinutes())}`;
+                                                    const endStr = `${pad2(apt._end.getHours())}:${pad2(apt._end.getMinutes())}`;
                                                     return (
                                                         <div
                                                             key={apt.id || ai}
-                                                            className="agenda-panel__apt"
-                                                            style={{ borderLeftColor: apt._color, background: `${apt._color}15` }}
-                                                            title={`${apt._title}\n${apt._userName}\n${startH} → ${endH}`}
+                                                            className="agenda-timeline__apt"
+                                                            style={{
+                                                                top: style.top,
+                                                                height: style.height,
+                                                                left: `${leftPct}%`,
+                                                                width: `${widthPct - 2}%`,
+                                                                background: `${apt._color}25`,
+                                                                borderLeftColor: apt._color,
+                                                            }}
+                                                            title={`${apt._title}\n${apt._userName}\n${startStr} → ${endStr}`}
                                                         >
-                                                            <div className="agenda-panel__apt-time">{startH} - {endH}</div>
-                                                            <div className="agenda-panel__apt-title">{apt._title}</div>
+                                                            <div className="agenda-timeline__apt-time">{startStr} - {endStr}</div>
+                                                            <div className="agenda-timeline__apt-title">{apt._title}</div>
                                                             {selectedUsers.length > 1 && (
-                                                                <div className="agenda-panel__apt-user" style={{ color: apt._color }}>{apt._userName}</div>
+                                                                <div className="agenda-timeline__apt-user" style={{ color: apt._color }}>{apt._userName}</div>
                                                             )}
                                                         </div>
                                                     );
-                                                })
-                                            )}
+                                                })}
+                                            </div>
                                         </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>

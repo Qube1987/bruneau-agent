@@ -819,8 +819,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  max-height: 45vh;
-  overflow-y: auto;
 }
 
 /* Navigation */
@@ -941,105 +939,180 @@ body {
   opacity: 0.5;
 }
 
-/* Week columns layout */
-.agenda-panel__week {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-  min-height: 80px;
-}
-
-.agenda-panel__day {
-  background: var(--bg-glass);
-  border-radius: var(--radius-sm);
+/* ===== Timeline Calendar ===== */
+.agenda-timeline {
+  overflow-y: auto;
+  max-height: 45vh;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  overflow: hidden;
 }
 
-.agenda-panel__day--today {
-  border-color: var(--accent);
-  background: rgba(108, 92, 231, 0.08);
+.agenda-timeline__grid {
+  display: grid;
+  grid-template-columns: 42px repeat(5, 1fr);
+  min-width: 500px;
 }
 
-.agenda-panel__day-header {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 4px 6px;
-  background: var(--bg-glass);
+/* Time gutter */
+.agenda-timeline__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-secondary);
+}
+
+.agenda-timeline__gutter-header {
+  height: 36px;
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
-.agenda-panel__day--today .agenda-panel__day-header {
+.agenda-timeline__gutter-body {
+  position: relative;
+  border-right: 1px solid var(--border);
+}
+
+.agenda-timeline__time-label {
+  position: absolute;
+  right: 4px;
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  line-height: 1;
+}
+
+/* Day columns */
+.agenda-timeline__day {
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.agenda-timeline__day:last-child {
+  border-right: none;
+}
+
+.agenda-timeline__day-header {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-glass);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.agenda-timeline__day-header--today {
   background: rgba(108, 92, 231, 0.12);
 }
 
-.agenda-panel__day-name {
-  font-size: 0.65rem;
+.agenda-timeline__day-name {
+  font-size: 0.6rem;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
-.agenda-panel__day-num {
+.agenda-timeline__day-num {
   font-size: var(--font-sm);
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.agenda-panel__day--today .agenda-panel__day-num {
+.agenda-timeline__day-num--today {
   color: var(--accent-light);
+  background: var(--accent);
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.7rem;
 }
 
-.agenda-panel__day-list {
-  padding: 3px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-height: 40px;
+.agenda-timeline__day-body {
+  position: relative;
+  overflow: hidden;
 }
 
-.agenda-panel__no-apt {
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  text-align: center;
-  padding: 8px 0;
-  opacity: 0.4;
+.agenda-timeline__day--today .agenda-timeline__day-body {
+  background: rgba(108, 92, 231, 0.03);
 }
 
-/* Appointment card */
-.agenda-panel__apt {
-  padding: 4px 6px;
-  border-radius: 4px;
+/* Hour grid lines */
+.agenda-timeline__hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Current time red line */
+.agenda-timeline__now-line {
+  position: absolute;
+  left: -2px;
+  right: 0;
+  height: 2px;
+  background: var(--danger);
+  z-index: 2;
+}
+
+.agenda-timeline__now-dot {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+}
+
+/* Appointment block */
+.agenda-timeline__apt {
+  position: absolute;
   border-left: 3px solid var(--accent);
-  font-size: var(--font-xs);
-  line-height: 1.35;
+  border-radius: 4px;
+  padding: 2px 4px;
+  overflow: hidden;
   cursor: default;
-  transition: filter var(--transition-fast);
+  z-index: 1;
+  transition: filter var(--transition-fast), box-shadow var(--transition-fast);
+  box-sizing: border-box;
 }
 
-.agenda-panel__apt:hover {
-  filter: brightness(1.4);
+.agenda-timeline__apt:hover {
+  filter: brightness(1.5);
+  z-index: 5;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
 }
 
-.agenda-panel__apt-time {
-  font-size: 0.65rem;
+.agenda-timeline__apt-time {
+  font-size: 0.55rem;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 1px;
-}
-
-.agenda-panel__apt-title {
-  color: var(--text-primary);
-  font-weight: 500;
+  line-height: 1.2;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.agenda-panel__apt-user {
-  font-size: 0.6rem;
+.agenda-timeline__apt-title {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.agenda-timeline__apt-user {
+  font-size: 0.55rem;
   font-weight: 600;
   margin-top: 1px;
   opacity: 0.8;
