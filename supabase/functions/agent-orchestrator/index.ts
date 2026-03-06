@@ -370,13 +370,13 @@ const TOOLS = [
     // ===== HITL =====
     {
         name: "ask_user_confirmation",
-        description: "Demander confirmation à l'utilisateur AVANT toute action d'écriture. OBLIGATOIRE avant create/update.",
+        description: "Demander confirmation à l'utilisateur AVANT toute action d'écriture. OBLIGATOIRE avant create/update/delete.",
         parameters: {
             type: "OBJECT",
             properties: {
-                message: { type: "STRING", description: "Message de confirmation" },
-                action_type: { type: "STRING", description: "Type d'action (create_sav, create_opportunity, update_sav, update_opportunity)" },
-                details: { type: "STRING", description: "JSON string des détails à confirmer" },
+                message: { type: "STRING", description: "Message de confirmation clair pour l'utilisateur" },
+                action_type: { type: "STRING", description: "Type d'action : create_sav, create_opportunity, create_rdv, update_sav, update_opportunity, delete_rdv" },
+                details: { type: "STRING", description: "JSON string des détails à confirmer. Pour un RDV: {\"objet\": \"...\", \"debut\": \"YYYY-MM-DD HH:MM:SS\", \"fin\": \"YYYY-MM-DD HH:MM:SS\", \"user_name\": \"Quentin\"}" },
             },
             required: ["message", "action_type", "details"],
         },
