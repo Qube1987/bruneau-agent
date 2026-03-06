@@ -795,36 +795,42 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const today = new Date().toISOString().split("T")[0];
             const dateDebut = args.date_debut || today;
             const dateFin = args.date_fin || dateDebut;
+            const userName = args.user_name || "Quentin";
 
-            const data = await callExtrabat("GET",
-                `/v1/utilisateur/${extrabatCode}/rendez-vous?date_debut=${dateDebut}&date_fin=${dateFin}&include=client`
-            );
+            // Call extrabat-proxy (same approach as SAV app's useCalendar)
+            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+            const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-            if (data.error) return { error: data.error };
+            const proxyResponse = await fetch(`${supabaseUrl}/functions/v1/extrabat-proxy`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseKey}`,
+                },
+                body: JSON.stringify({
+                    endpoint: `utilisateur/${extrabatCode}/rendez-vous`,
+                    apiVersion: "v1",
+                    params: {
+                        date_debut: dateDebut,
+                        date_fin: dateFin,
+                        include: "client",
+                    },
+                }),
+            });
 
-            const appointments = Array.isArray(data) ? data : (data ? Object.values(data) : []);
+            const proxyData = await proxyResponse.json();
+            console.log("get_agenda proxy response:", JSON.stringify(proxyData).substring(0, 500));
 
-            // Format appointments for the AI
+            if (!proxyData.success) return { error: proxyData.error || "Erreur récupération agenda" };
+
+            const appointments = Array.isArray(proxyData.data) ? proxyData.data : (proxyData.data ? Object.values(proxyData.data) : []);
             const formatted = (appointments as any[]).map((apt: any) => ({
-                id: apt.id,
-                objet: apt.objet,
-                debut: apt.debut,
-                fin: apt.fin,
-                journee: apt.journee,
+                id: apt.id, objet: apt.objet, debut: apt.debut, fin: apt.fin, journee: apt.journee,
                 clients: apt.clients || [],
             }));
-
-            // Sort by start time
             formatted.sort((a: any, b: any) => new Date(a.debut).getTime() - new Date(b.debut).getTime());
 
-            const userName = args.user_name || "Quentin";
-            return {
-                user: userName,
-                date_debut: dateDebut,
-                date_fin: dateFin,
-                appointments: formatted,
-                count: formatted.length,
-            };
+            return { user: userName, date_debut: dateDebut, date_fin: dateFin, appointments: formatted, count: formatted.length };
         }
 
         // ===== CREATE APPOINTMENT =====
@@ -832,57 +838,76 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const extrabatCode = getExtrabatCode(args.user_name);
             const userName = args.user_name || "Quentin";
 
-            // Normalize dates to Extrabat format: "YYYY-MM-DD HH:MM:SS"
-            const normalizeDate = (d: string): string => {
-                if (!d) return d;
-                // Replace T with space (ISO format → Extrabat format)
-                let normalized = d.replace("T", " ");
-                // Ensure we have seconds
-                if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(normalized)) {
-                    normalized += ":00";
-                }
-                // If only date, add time
-                if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-                    normalized += " 00:00:00";
-                }
-                return normalized;
+            // Parse debut/fin into proper Date objects
+            const parseDate = (d: string): Date => {
+                if (!d) return new Date();
+                // Handle "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SS"
+                return new Date(d.replace(" ", "T"));
             };
 
-            const debut = normalizeDate(args.debut);
-            const fin = normalizeDate(args.fin);
+            const startDate = parseDate(args.debut);
+            const endDate = args.fin ? parseDate(args.fin) : new Date(startDate.getTime() + 60 * 60 * 1000); // default 1h
 
-            console.log(`Creating appointment: objet="${args.objet}", debut="${debut}", fin="${fin}", user=${extrabatCode} (${userName})`);
+            console.log(`Creating appointment via extrabat-proxy: objet="${args.objet}", start=${startDate.toISOString()}, end=${endDate.toISOString()}, user=${extrabatCode} (${userName})`);
 
-            const appointmentData: any = {
-                journee: args.journee || false,
-                objet: args.objet,
-                debut: debut,
-                fin: fin,
-                couleur: 23061,
-                users: [{ user: parseInt(extrabatCode, 10) }],
-            };
+            // Call extrabat-proxy with the SAME format as the SAV app's useExtrabat.createAppointment
+            const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+            const supabaseKey2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-            console.log("Appointment data:", JSON.stringify(appointmentData));
+            const proxyResponse2 = await fetch(`${supabaseUrl2}/functions/v1/extrabat-proxy`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseKey2}`,
+                },
+                body: JSON.stringify({
+                    technicianCodes: [extrabatCode],
+                    interventionData: {
+                        clientName: args.objet,
+                        systemType: "",
+                        problemDesc: args.objet,
+                        startedAt: startDate.toISOString(),
+                        endedAt: endDate.toISOString(),
+                    },
+                }),
+            });
 
-            const data = await callExtrabat("POST", `/v1/agenda/rendez-vous`, appointmentData);
+            const proxyResult = await proxyResponse2.json();
+            console.log("create_appointment proxy response:", JSON.stringify(proxyResult));
 
-            console.log("Extrabat create appointment response:", JSON.stringify(data));
-
-            if (data?.error) return { error: data.error };
+            if (!proxyResult.success) {
+                return { error: proxyResult.error || "Erreur création RDV Extrabat" };
+            }
 
             return {
                 success: true,
-                message: `Rendez-vous "${args.objet}" créé pour ${userName} le ${debut}`,
-                appointment_id: data?.id || data,
-                details: { objet: args.objet, debut, fin, user: userName },
+                message: `Rendez-vous "${args.objet}" créé pour ${userName}`,
+                appointment_id: proxyResult.data?.id || proxyResult.data,
+                details: { objet: args.objet, debut: startDate.toISOString(), fin: endDate.toISOString(), user: userName },
             };
         }
 
         // ===== DELETE APPOINTMENT =====
         case "delete_appointment": {
-            const data = await callExtrabat("DELETE", `/v1/agenda/rendez-vous/${args.appointment_id}`);
+            const supabaseUrl3 = Deno.env.get("SUPABASE_URL")!;
+            const supabaseKey3 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-            if (data.error) return { error: data.error };
+            const proxyResponse3 = await fetch(`${supabaseUrl3}/functions/v1/extrabat-proxy`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseKey3}`,
+                },
+                body: JSON.stringify({
+                    action: "deleteAppointment",
+                    appointmentId: args.appointment_id,
+                }),
+            });
+
+            const proxyResult3 = await proxyResponse3.json();
+            console.log("delete_appointment proxy response:", JSON.stringify(proxyResult3));
+
+            if (!proxyResult3.success) return { error: proxyResult3.error || "Erreur suppression RDV" };
 
             return {
                 success: true,
