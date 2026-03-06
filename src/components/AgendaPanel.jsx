@@ -49,45 +49,23 @@ function pad2(n) { return String(n).padStart(2, '0'); }
 
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
-    const [selectedUsers, setSelectedUsers] = useState([]);
+    const [selectedUsers, setSelectedUsers] = useState(() => {
+        // Restore saved selection from localStorage, default to current user (Quentin)
+        try {
+            const saved = localStorage.getItem('agenda_selected_users');
+            if (saved) return JSON.parse(saved);
+        } catch { }
+        return [TEAM_MEMBERS[0].code]; // Default: first team member (Quentin)
+    });
     const [activeAptData, setActiveAptData] = useState(null);
     const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [currentUserLoaded, setCurrentUserLoaded] = useState(false);
 
-    // Auto-select current user on first expand
+    // Persist selection to localStorage
     useEffect(() => {
-        if (!isExpanded || currentUserLoaded) return;
-
-        const loadCurrentUser = async () => {
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) return;
-
-                // Fetch user's extrabat_code from the users table
-                const { data: userData } = await supabase
-                    .from('users')
-                    .select('extrabat_code')
-                    .eq('id', user.id)
-                    .single();
-
-                if (userData?.extrabat_code) {
-                    // Check if this code matches a team member
-                    const member = TEAM_MEMBERS.find(m => m.code === userData.extrabat_code);
-                    if (member) {
-                        setSelectedUsers([userData.extrabat_code]);
-                    }
-                }
-            } catch (e) {
-                console.error('Error loading current user for agenda:', e);
-            } finally {
-                setCurrentUserLoaded(true);
-            }
-        };
-
-        loadCurrentUser();
-    }, [isExpanded, currentUserLoaded]);
+        localStorage.setItem('agenda_selected_users', JSON.stringify(selectedUsers));
+    }, [selectedUsers]);
 
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 4);
