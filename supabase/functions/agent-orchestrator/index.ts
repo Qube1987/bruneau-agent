@@ -74,6 +74,7 @@ RÈGLES IMPORTANTES :
 - Quand on te demande de "créer un SAV", c'est une sav_request
 - FLUX DE CRÉATION SAV : 1) search_client 2) list_users 3) ask_user_selection avec les utilisateurs formatés en options [{label: display_name, subtitle: role, value: id}] pour demander à qui assigner 4) ask_user_confirmation avec TOUS les détails dont assigned_user_id et assigned_user_name 5) create_sav_request
 - Ne demande JAMAIS de taper un nom d'utilisateur. Utilise TOUJOURS ask_user_selection avec la liste cliquable.
+- Pour search_client, utilise UNIQUEMENT le nom de famille (sans civilité M., Mme, etc.). Exemple : pour "M. Pages", cherche "Pages"
 - Table "users" : utilisateurs de l'équipe (id, display_name, email, role[admin/manager/technicien])
 
 STRUCTURE DE LA BASE :
@@ -209,10 +210,22 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
     switch (toolName) {
         case "search_client": {
+            // Strip French civility prefixes and clean up the query
+            const civilities = /^(m\.|mr\.?|mme\.?|monsieur|madame|mademoiselle|mlle\.?|société|ste\.?|ets\.?)\s+/i;
+            const cleanedQuery = args.query.replace(civilities, "").trim();
+            // Split into words and search for each meaningful word (length > 1)
+            const words = cleanedQuery.split(/\s+/).filter((w: string) => w.length > 1);
+            const searchTerms = words.length > 0 ? words : [cleanedQuery];
+
+            // Build OR conditions: search each word against nom, prenom, entreprise
+            const orConditions = searchTerms
+                .map((term: string) => `nom.ilike.%${term}%,prenom.ilike.%${term}%,entreprise.ilike.%${term}%`)
+                .join(",");
+
             const { data, error } = await db
                 .from("clients")
                 .select("id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, actif")
-                .or(`nom.ilike.%${args.query}%,prenom.ilike.%${args.query}%,entreprise.ilike.%${args.query}%`)
+                .or(orConditions)
                 .eq("actif", true)
                 .order("updated_at", { ascending: false })
                 .limit(10);
