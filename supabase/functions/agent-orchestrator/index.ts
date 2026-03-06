@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ============================================================
-// BRUNEAU AGENT ORCHESTRATOR
+// BRUNEAU AGENT ORCHESTRATOR v2
 // Single Supabase DB (Bruneau-Protection) — all apps share it
 // ============================================================
 
@@ -12,7 +12,6 @@ const corsHeaders = {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// --- Single Supabase client (service_role for full access) ---
 function getDB() {
     return createClient(
         Deno.env.get("SUPABASE_URL") || "",
@@ -33,14 +32,8 @@ async function callGemini(messages: any[], tools: any[]) {
             body: JSON.stringify({
                 contents: messages,
                 tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
-                systemInstruction: {
-                    parts: [{ text: SYSTEM_PROMPT }],
-                },
-                generationConfig: {
-                    temperature: 0.3,
-                    topP: 0.8,
-                    maxOutputTokens: 2048,
-                },
+                systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+                generationConfig: { temperature: 0.3, topP: 0.8, maxOutputTokens: 2048 },
             }),
         }
     );
@@ -78,6 +71,10 @@ RÈGLES IMPORTANTES :
 - Ne demande JAMAIS de taper un nom d'utilisateur. Utilise TOUJOURS ask_user_selection avec la liste cliquable.
 - Pour search_client, utilise UNIQUEMENT le nom de famille (sans civilité M., Mme, etc.). Exemple : pour "M. Pages", cherche "Pages"
 - Table "users" : utilisateurs de l'équipe (id, display_name, email, role[admin/manager/technicien])
+- Quand on te demande la liste des SAV, opportunités, etc., utilise les outils list_sav_requests ou list_opportunities
+- Quand on te demande "combien de SAV" ou des statistiques, utilise get_sav_stats ou get_dashboard_summary
+- Pour modifier le statut d'un SAV ou d'une opportunité, utilise update_sav_status ou update_opportunity_status (toujours avec confirmation)
+- Pour les alertes stock ou ruptures, utilise get_stock_alerts
 
 RECHERCHE DE CLIENTS :
 - search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
@@ -87,73 +84,89 @@ RECHERCHE DE CLIENTS :
 - Si l'utilisateur choisit un client "extrabat", précise-lui que ce client n'est pas encore dans la base locale et que le SAV/opportunité ne peut pas être lié automatiquement. Propose de créer le SAV avec les infos du client (nom, téléphone, adresse) mais SANS client_id (passe null)
 - Quand tu proposes la liste des clients à l'utilisateur via ask_user_selection, indique la source. Exemple : "Pages Jean (Supabase)" ou "Pages Jean (Extrabat)"
 
+FORMAT DES RÉPONSES POUR LES LISTES :
+- Quand tu retournes une liste (SAV, opportunités, etc.), formate-la de manière claire et concise
+- Indique le nombre total de résultats
+- Pour les SAV : "📋 Client | Problème | Statut | Date"
+- Pour les opportunités : "📊 Client | Titre | Statut | Suivi par"
+- Limite à 10 éléments max pour la lecture vocale, mentionne s'il y en a plus
+
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
-- Table "sav_requests" : demandes SAV (id, client_id FK→clients, client_name, phone, address, system_type, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority)
-- Table "opportunites" : opportunités commerciales (id, client_id FK→clients, titre, description, statut[a-contacter/contacte/recueil-besoin/redaction-devis/devis-transmis/relance-1/relance-2/relance-3], suivi_par, montant_estime, statut_final[gagne/perdu/standby])
-- Table "maintenance_contracts" : contrats de maintenance (id, client_id FK→clients, client_name, system_type, status, address)
-- Table "stock_products" : stock (id, name, code_article, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
-- Table "devis" : devis (id, client_id FK→clients, devis_number, status, titre_affaire)
+- Table "sav_requests" : demandes SAV (id, client_id, client_name, phone, address, system_type, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority, assigned_user_id, requested_at, resolved_at, billing_status)
+- Table "opportunites" : opportunités commerciales (id, client_id, titre, description, statut[a-contacter/contacte/recueil-besoin/redaction-devis/devis-transmis/relance-1/relance-2/relance-3], suivi_par, montant_estime, statut_final[gagne/perdu/standby], archive, prioritaire, date_creation)
+- Table "maintenance_contracts" : contrats de maintenance (id, client_id, client_name, system_type, system_brand, status[actif/inactif], address, annual_amount, billing_mode, invoice_sent, invoice_paid)
+- Table "stock_products" : stock (id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
+- Table "devis" : devis (id, client_id, devis_number, status[brouillon/envoye/accepte/refuse], titre_affaire, totaux)
+- Table "call_notes" : notes d'appels (id, client_name, call_subject, notes, is_completed, priority)
 
 Types de systèmes : ssi (détection incendie), type4 (alarme incendie type 4), intrusion (alarme anti-intrusion), video (vidéosurveillance), controle_acces, interphone, portail, autre.`;
 
 // --- Tool definitions ---
 const TOOLS = [
+    // ===== SEARCH & READ =====
     {
         name: "search_client",
-        description: "Rechercher un client par nom. Cherche d'abord dans la base locale Supabase, puis dans Extrabat si pas assez de résultats. Retourne les clients correspondants avec leurs coordonnées et la source (supabase ou extrabat).",
+        description: "Rechercher un client par nom. Cherche dans Supabase puis Extrabat si pas assez de résultats.",
         parameters: {
             type: "OBJECT",
             properties: {
-                query: {
-                    type: "STRING",
-                    description: "Le nom (ou partie du nom) du client à rechercher",
-                },
+                query: { type: "STRING", description: "Le nom (ou partie du nom) du client à rechercher" },
             },
             required: ["query"],
         },
     },
     {
-        name: "create_sav_request",
-        description: "Créer une nouvelle demande SAV. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        name: "list_sav_requests",
+        description: "Lister les demandes SAV avec filtres optionnels. Utilise cet outil quand on demande la liste des SAV, les SAV en cours, les SAV du jour, etc.",
         parameters: {
             type: "OBJECT",
             properties: {
-                client_id: { type: "STRING", description: "UUID du client Supabase (obtenu via search_client, source 'supabase'). Null si client Extrabat uniquement." },
-                client_name: { type: "STRING", description: "Nom du client" },
-                phone: { type: "STRING", description: "Téléphone (optionnel)" },
-                address: { type: "STRING", description: "Adresse (optionnel)" },
-                system_type: { type: "STRING", description: "Type: ssi, type4, intrusion, video, controle_acces, interphone, portail, autre" },
-                problem_desc: { type: "STRING", description: "Description du problème" },
-                urgent: { type: "BOOLEAN", description: "Urgent ou non" },
-                assigned_user_id: { type: "STRING", description: "UUID de l'utilisateur assigné (obtenu via list_users)" },
+                status: { type: "STRING", description: "Filtrer par statut : nouvelle, en_cours, terminee, archivee. Laisser vide pour tous." },
+                period: { type: "STRING", description: "Période : today (aujourd'hui), week (cette semaine), month (ce mois). Laisser vide pour tous." },
+                assigned_user: { type: "STRING", description: "Filtrer par technicien assigné (nom ou partie du nom)" },
+                urgent_only: { type: "BOOLEAN", description: "Si true, ne retourne que les SAV urgents" },
+                limit: { type: "NUMBER", description: "Nombre max de résultats (défaut: 20)" },
             },
-            required: ["client_name", "system_type", "problem_desc"],
         },
     },
     {
-        name: "create_opportunity",
-        description: "Créer une nouvelle opportunité commerciale. IMPORTANT: appeler search_client puis ask_user_confirmation d'abord.",
+        name: "list_opportunities",
+        description: "Lister les opportunités commerciales avec filtres optionnels. Utilise cet outil quand on demande la liste des opportunités, les opportunités en cours, etc.",
         parameters: {
             type: "OBJECT",
             properties: {
-                client_id: { type: "STRING", description: "UUID du client Supabase (obtenu via search_client, source 'supabase'). Null si client Extrabat uniquement." },
-                client_name: { type: "STRING", description: "Nom du client" },
-                titre: { type: "STRING", description: "Titre de l'opportunité" },
-                description: { type: "STRING", description: "Description" },
-                montant_estime: { type: "NUMBER", description: "Montant estimé (optionnel)" },
-                suivi_par: { type: "STRING", description: "Personne en charge (défaut: Quentin)" },
+                statut: { type: "STRING", description: "Filtrer par statut : a-contacter, contacte, recueil-besoin, redaction-devis, devis-transmis, relance-1, relance-2, relance-3. Laisser vide pour tous." },
+                statut_final: { type: "STRING", description: "Filtrer par statut final : gagne, perdu, standby. Laisser vide pour tous." },
+                suivi_par: { type: "STRING", description: "Filtrer par responsable (ex: Quentin, Hugo)" },
+                period: { type: "STRING", description: "Période : today, week, month. Laisser vide pour tous." },
+                prioritaire_only: { type: "BOOLEAN", description: "Si true, ne retourne que les prioritaires" },
+                include_archived: { type: "BOOLEAN", description: "Si true, inclut les archivées (défaut: false)" },
+                limit: { type: "NUMBER", description: "Nombre max de résultats (défaut: 20)" },
             },
-            required: ["client_name", "titre", "description"],
         },
     },
     {
-        name: "get_sav_stats",
-        description: "Statistiques SAV sur une période donnée",
+        name: "list_maintenance_contracts",
+        description: "Lister les contrats de maintenance avec filtres optionnels.",
         parameters: {
             type: "OBJECT",
             properties: {
-                period: { type: "STRING", description: "today, week, month (défaut: week)" },
+                status: { type: "STRING", description: "Filtrer par statut : actif, inactif. Laisser vide pour tous." },
+                search: { type: "STRING", description: "Rechercher par nom de client" },
+                limit: { type: "NUMBER", description: "Nombre max de résultats (défaut: 20)" },
+            },
+        },
+    },
+    {
+        name: "list_devis",
+        description: "Lister les devis avec filtres optionnels.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                status: { type: "STRING", description: "Filtrer par statut : brouillon, envoye, accepte, refuse. Laisser vide pour tous." },
+                period: { type: "STRING", description: "Période : today, week, month. Laisser vide pour tous." },
+                limit: { type: "NUMBER", description: "Nombre max de résultats (défaut: 20)" },
             },
         },
     },
@@ -180,6 +193,32 @@ const TOOLS = [
         },
     },
     {
+        name: "get_stock_alerts",
+        description: "Obtenir la liste des produits en rupture ou sous le seuil minimum. Utilise cet outil quand on demande les alertes stock, les ruptures, les produits à commander.",
+        parameters: {
+            type: "OBJECT",
+            properties: {},
+        },
+    },
+    {
+        name: "get_sav_stats",
+        description: "Statistiques SAV détaillées sur une période donnée : nombre par statut, urgents, etc.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                period: { type: "STRING", description: "today, week, month (défaut: week)" },
+            },
+        },
+    },
+    {
+        name: "get_dashboard_summary",
+        description: "Résumé global de l'activité : SAV en cours, opportunités actives, alertes stock, maintenance. Utilise cet outil quand on demande un résumé, un point global, ou 'comment ça va'.",
+        parameters: {
+            type: "OBJECT",
+            properties: {},
+        },
+    },
+    {
         name: "list_users",
         description: "Lister les utilisateurs de l'équipe (techniciens, managers, admins). Utile pour savoir à qui assigner un SAV.",
         parameters: {
@@ -187,14 +226,79 @@ const TOOLS = [
             properties: {},
         },
     },
+
+    // ===== CREATE =====
+    {
+        name: "create_sav_request",
+        description: "Créer une nouvelle demande SAV. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                client_id: { type: "STRING", description: "UUID du client Supabase. Null si client Extrabat uniquement." },
+                client_name: { type: "STRING", description: "Nom du client" },
+                phone: { type: "STRING", description: "Téléphone (optionnel)" },
+                address: { type: "STRING", description: "Adresse (optionnel)" },
+                system_type: { type: "STRING", description: "Type: ssi, type4, intrusion, video, controle_acces, interphone, portail, autre" },
+                problem_desc: { type: "STRING", description: "Description du problème" },
+                urgent: { type: "BOOLEAN", description: "Urgent ou non" },
+                assigned_user_id: { type: "STRING", description: "UUID de l'utilisateur assigné" },
+            },
+            required: ["client_name", "system_type", "problem_desc"],
+        },
+    },
+    {
+        name: "create_opportunity",
+        description: "Créer une nouvelle opportunité commerciale. IMPORTANT: appeler search_client puis ask_user_confirmation d'abord.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                client_id: { type: "STRING", description: "UUID du client Supabase. Null si client Extrabat uniquement." },
+                client_name: { type: "STRING", description: "Nom du client" },
+                titre: { type: "STRING", description: "Titre de l'opportunité" },
+                description: { type: "STRING", description: "Description" },
+                montant_estime: { type: "NUMBER", description: "Montant estimé (optionnel)" },
+                suivi_par: { type: "STRING", description: "Personne en charge (défaut: Quentin)" },
+            },
+            required: ["client_name", "titre", "description"],
+        },
+    },
+
+    // ===== UPDATE =====
+    {
+        name: "update_sav_status",
+        description: "Modifier le statut d'un SAV. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                sav_id: { type: "STRING", description: "UUID du SAV à modifier" },
+                new_status: { type: "STRING", description: "Nouveau statut : nouvelle, en_cours, terminee, archivee" },
+            },
+            required: ["sav_id", "new_status"],
+        },
+    },
+    {
+        name: "update_opportunity_status",
+        description: "Modifier le statut d'une opportunité. IMPORTANT: appeler ask_user_confirmation d'abord.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                opportunity_id: { type: "STRING", description: "UUID de l'opportunité à modifier" },
+                new_statut: { type: "STRING", description: "Nouveau statut : a-contacter, contacte, recueil-besoin, redaction-devis, devis-transmis, relance-1, relance-2, relance-3" },
+                statut_final: { type: "STRING", description: "Statut final (optionnel) : gagne, perdu, standby" },
+            },
+            required: ["opportunity_id"],
+        },
+    },
+
+    // ===== HITL =====
     {
         name: "ask_user_confirmation",
-        description: "Demander confirmation à l'utilisateur AVANT toute action d'écriture. OBLIGATOIRE avant create_sav_request ou create_opportunity.",
+        description: "Demander confirmation à l'utilisateur AVANT toute action d'écriture. OBLIGATOIRE avant create/update.",
         parameters: {
             type: "OBJECT",
             properties: {
                 message: { type: "STRING", description: "Message de confirmation" },
-                action_type: { type: "STRING", description: "Type d'action (create_sav, create_opportunity)" },
+                action_type: { type: "STRING", description: "Type d'action (create_sav, create_opportunity, update_sav, update_opportunity)" },
                 details: { type: "STRING", description: "JSON string des détails à confirmer" },
             },
             required: ["message", "action_type", "details"],
@@ -218,11 +322,7 @@ const TOOLS = [
 async function searchExtrabat(query: string): Promise<any[]> {
     const apiKey = Deno.env.get("EXTRABAT_API_KEY");
     const securityKey = Deno.env.get("EXTRABAT_SECURITY");
-
-    if (!apiKey || !securityKey) {
-        console.warn("Extrabat API credentials not configured, skipping Extrabat search");
-        return [];
-    }
+    if (!apiKey || !securityKey) return [];
 
     const url = `https://api.extrabat.com/v2/clients?q=${encodeURIComponent(query)}&include=telephone,adresse`;
     console.log("Searching Extrabat:", url);
@@ -244,40 +344,38 @@ async function searchExtrabat(query: string): Promise<any[]> {
     const data = await response.json();
     const clients = Array.isArray(data) ? data : (data.data || data.clients || []);
 
-    // Normalize Extrabat client data to match our format
     return clients.map((client: any) => {
         let telephone = "";
-        if (client.telephones && Array.isArray(client.telephones) && client.telephones.length > 0) {
+        if (client.telephones?.length > 0) {
             telephone = client.telephones[0].number || client.telephones[0].numero || "";
         }
-
-        let adresse = "";
-        let code_postal = "";
-        let ville = "";
-        if (client.adresses && Array.isArray(client.adresses) && client.adresses.length > 0) {
+        let adresse = "", code_postal = "", ville = "";
+        if (client.adresses?.length > 0) {
             const addr = client.adresses[0];
             adresse = addr.description || addr.adresse || addr.rue || "";
             code_postal = addr.codePostal || addr.code_postal || "";
             ville = addr.ville || "";
         }
-
         return {
-            id: `extrabat-${client.id}`,
-            extrabat_id: client.id,
-            nom: client.nom || "",
-            prenom: client.prenom || "",
-            email: client.email || "",
-            telephone,
-            adresse,
-            code_postal,
-            ville,
+            id: `extrabat-${client.id}`, extrabat_id: client.id,
+            nom: client.nom || "", prenom: client.prenom || "",
+            email: client.email || "", telephone, adresse, code_postal, ville,
             civilite: client.civilite?.libelle || "",
             entreprise: client.raisonSociale || "",
             client_type: client.civilite?.professionnel ? "professionnel" : "particulier",
-            actif: true,
-            source: "extrabat",
+            actif: true, source: "extrabat",
         };
     }).slice(0, 10);
+}
+
+// --- Date helper ---
+function getDateFilter(period?: string): Date | null {
+    if (!period) return null;
+    const now = new Date();
+    if (period === "today") { now.setHours(0, 0, 0, 0); return now; }
+    if (period === "week") { now.setDate(now.getDate() - 7); return now; }
+    if (period === "month") { now.setMonth(now.getMonth() - 1); return now; }
+    return null;
 }
 
 // --- Tool execution ---
@@ -286,181 +384,326 @@ async function executeTool(toolName: string, args: any): Promise<any> {
     console.log(`Executing tool: ${toolName}`, JSON.stringify(args));
 
     switch (toolName) {
+
+        // ===== SEARCH CLIENT =====
         case "search_client": {
-            // Strip French civility prefixes and clean up the query
             const civilities = /^(m\.|mr\.?|mme\.?|monsieur|madame|mademoiselle|mlle\.?|société|ste\.?|ets\.?)\s+/i;
             const cleanedQuery = args.query.replace(civilities, "").trim();
-            // Split into words and search for each meaningful word (length > 1)
             const words = cleanedQuery.split(/\s+/).filter((w: string) => w.length > 1);
             const searchTerms = words.length > 0 ? words : [cleanedQuery];
-
-            // Build OR conditions: search each word against nom, prenom, entreprise
             const orConditions = searchTerms
                 .map((term: string) => `nom.ilike.%${term}%,prenom.ilike.%${term}%,entreprise.ilike.%${term}%`)
                 .join(",");
 
-            const { data, error } = await db
-                .from("clients")
+            const { data, error } = await db.from("clients")
                 .select("id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, actif")
-                .or(orConditions)
-                .eq("actif", true)
-                .order("updated_at", { ascending: false })
-                .limit(10);
+                .or(orConditions).eq("actif", true)
+                .order("updated_at", { ascending: false }).limit(10);
 
             if (error) return { error: error.message };
-
             const supabaseClients = (data || []).map((c: any) => ({ ...c, source: "supabase" }));
 
-            // If Supabase returned few or no results, also search Extrabat
             if (supabaseClients.length < 3) {
                 try {
                     const extrabatClients = await searchExtrabat(cleanedQuery);
-                    // Deduplicate: exclude Extrabat clients already found in Supabase (by nom match)
                     const supabaseNoms = new Set(supabaseClients.map((c: any) => (c.nom || "").toLowerCase()));
-                    const uniqueExtrabat = extrabatClients.filter(
-                        (c: any) => !supabaseNoms.has((c.nom || "").toLowerCase())
-                    );
+                    const uniqueExtrabat = extrabatClients.filter((c: any) => !supabaseNoms.has((c.nom || "").toLowerCase()));
                     const combined = [...supabaseClients, ...uniqueExtrabat].slice(0, 15);
                     return { clients: combined, count: combined.length };
-                } catch (extrabatError) {
-                    console.error("Extrabat search failed (fallback to Supabase only):", extrabatError);
-                }
+                } catch (e) { console.error("Extrabat search failed:", e); }
             }
-
             return { clients: supabaseClients, count: supabaseClients.length };
         }
 
-        case "list_users": {
-            const { data, error } = await db
-                .from("users")
-                .select("id, display_name, email, role")
-                .order("display_name");
+        // ===== LIST SAV REQUESTS =====
+        case "list_sav_requests": {
+            let query = db.from("sav_requests")
+                .select("id, client_name, phone, system_type, problem_desc, status, urgent, priority, requested_at, resolved_at, assigned_user_id")
+                .order("requested_at", { ascending: false })
+                .limit(args.limit || 20);
 
+            if (args.status) query = query.eq("status", args.status);
+            if (args.urgent_only) query = query.eq("urgent", true);
+
+            const dateFilter = getDateFilter(args.period);
+            if (dateFilter) query = query.gte("requested_at", dateFilter.toISOString());
+
+            const { data, error } = await query;
             if (error) return { error: error.message };
-            return { users: data || [], count: (data || []).length };
+
+            let results = data || [];
+
+            // If filtering by assigned_user name, we need to resolve user names
+            if (args.assigned_user && results.length > 0) {
+                const { data: users } = await db.from("users").select("id, display_name");
+                const matchingUserIds = (users || [])
+                    .filter((u: any) => u.display_name?.toLowerCase().includes(args.assigned_user.toLowerCase()))
+                    .map((u: any) => u.id);
+                results = results.filter((r: any) => matchingUserIds.includes(r.assigned_user_id));
+            }
+
+            return { sav_requests: results, count: results.length, filters_applied: { status: args.status, period: args.period, urgent: args.urgent_only, user: args.assigned_user } };
         }
 
-        case "create_sav_request": {
-            // Handle client_id: skip if null, empty, or starts with "extrabat-" (not a valid Supabase UUID)
-            const validClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
-            const insertData: any = {
-                client_name: args.client_name,
-                phone: args.phone || null,
-                address: args.address || null,
-                system_type: args.system_type || "autre",
-                problem_desc: args.problem_desc,
-                urgent: args.urgent || false,
-                status: "nouvelle",
+        // ===== LIST OPPORTUNITIES =====
+        case "list_opportunities": {
+            let query = db.from("opportunites")
+                .select("id, titre, description, statut, suivi_par, montant_estime, statut_final, archive, prioritaire, date_creation, client_id, clients:client_id(nom, prenom)")
+                .order("date_creation", { ascending: false })
+                .limit(args.limit || 20);
+
+            if (args.statut) query = query.eq("statut", args.statut);
+            if (args.statut_final) query = query.eq("statut_final", args.statut_final);
+            if (args.suivi_par) query = query.ilike("suivi_par", `%${args.suivi_par}%`);
+            if (args.prioritaire_only) query = query.eq("prioritaire", true);
+            if (!args.include_archived) query = query.or("archive.is.null,archive.eq.false");
+
+            const dateFilter = getDateFilter(args.period);
+            if (dateFilter) query = query.gte("date_creation", dateFilter.toISOString());
+
+            const { data, error } = await query;
+            if (error) return { error: error.message };
+
+            const results = (data || []).map((opp: any) => ({
+                ...opp,
+                client_name: opp.clients ? `${opp.clients.nom || ""} ${opp.clients.prenom || ""}`.trim() : "Inconnu",
+            }));
+
+            return { opportunites: results, count: results.length, filters_applied: { statut: args.statut, suivi_par: args.suivi_par, period: args.period } };
+        }
+
+        // ===== LIST MAINTENANCE CONTRACTS =====
+        case "list_maintenance_contracts": {
+            let query = db.from("maintenance_contracts")
+                .select("id, client_name, system_type, system_brand, status, address, city_derived, annual_amount, billing_mode, invoice_sent, invoice_paid")
+                .order("created_at", { ascending: false })
+                .limit(args.limit || 20);
+
+            if (args.status) query = query.eq("status", args.status);
+            if (args.search) query = query.ilike("client_name", `%${args.search}%`);
+
+            const { data, error } = await query;
+            if (error) return { error: error.message };
+            return { contracts: data || [], count: (data || []).length };
+        }
+
+        // ===== LIST DEVIS =====
+        case "list_devis": {
+            let query = db.from("devis")
+                .select("id, devis_number, titre_affaire, status, totaux, created_at, client_id, clients:client_id(nom, prenom)")
+                .order("created_at", { ascending: false })
+                .limit(args.limit || 20);
+
+            if (args.status) query = query.eq("status", args.status);
+
+            const dateFilter = getDateFilter(args.period);
+            if (dateFilter) query = query.gte("created_at", dateFilter.toISOString());
+
+            const { data, error } = await query;
+            if (error) return { error: error.message };
+
+            const results = (data || []).map((d: any) => ({
+                ...d,
+                client_name: d.clients ? `${d.clients.nom || ""} ${d.clients.prenom || ""}`.trim() : "Inconnu",
+                montant_ttc: d.totaux?.totalTTC || d.totaux?.total_ttc || null,
+            }));
+
+            return { devis: results, count: results.length };
+        }
+
+        // ===== GET CLIENT HISTORY =====
+        case "get_client_history": {
+            const [savRes, oppRes, maintRes] = await Promise.all([
+                db.from("sav_requests").select("id, client_name, system_type, problem_desc, status, urgent, requested_at").eq("client_id", args.client_id).order("requested_at", { ascending: false }).limit(10),
+                db.from("opportunites").select("id, titre, statut, montant_estime, suivi_par, date_creation, statut_final").eq("client_id", args.client_id).order("date_creation", { ascending: false }).limit(10),
+                db.from("maintenance_contracts").select("id, client_name, system_type, status, address, annual_amount").eq("client_id", args.client_id).limit(10),
+            ]);
+            return {
+                sav_requests: savRes.data || [], sav_count: (savRes.data || []).length,
+                opportunites: oppRes.data || [], opp_count: (oppRes.data || []).length,
+                maintenance_contracts: maintRes.data || [], maint_count: (maintRes.data || []).length,
             };
-            if (validClientId) {
-                insertData.client_id = validClientId;
-            }
-            if (args.assigned_user_id) {
-                insertData.assigned_user_id = args.assigned_user_id;
-            }
-            const { data, error } = await db
-                .from("sav_requests")
-                .insert(insertData)
-                .select("id, client_name, status, system_type, problem_desc")
-                .single();
-
-            if (error) return { error: error.message };
-            return { success: true, sav_request: data };
         }
 
-        case "create_opportunity": {
-            // Handle client_id: skip if null, empty, or starts with "extrabat-" (not a valid Supabase UUID)
-            const validOppClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
-            const oppInsertData: any = {
-                titre: args.titre,
-                description: args.description || "",
-                montant_estime: args.montant_estime || null,
-                suivi_par: args.suivi_par || "Quentin",
-                statut: "a-contacter",
-            };
-            if (validOppClientId) {
-                oppInsertData.client_id = validOppClientId;
-            }
-            const { data, error } = await db
-                .from("opportunites")
-                .insert(oppInsertData)
-                .select("id, titre, statut")
-                .single();
-
+        // ===== CHECK STOCK =====
+        case "check_stock": {
+            const { data, error } = await db.from("stock_products")
+                .select("id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity")
+                .or(`name.ilike.%${args.query}%,code_article.ilike.%${args.query}%,marque.ilike.%${args.query}%`)
+                .limit(10);
             if (error) return { error: error.message };
-            return { success: true, opportunity: data };
+
+            const results = (data || []).map((p: any) => ({
+                ...p,
+                total_quantity: (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0),
+                is_low: ((p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0)) < (p.min_quantity || 0),
+            }));
+            return { products: results, count: results.length };
         }
 
+        // ===== GET STOCK ALERTS =====
+        case "get_stock_alerts": {
+            const { data, error } = await db.from("stock_products")
+                .select("id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity")
+                .gt("min_quantity", 0);
+            if (error) return { error: error.message };
+
+            const alerts = (data || []).filter((p: any) => {
+                const total = (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0);
+                return total < (p.min_quantity || 0);
+            }).map((p: any) => ({
+                ...p,
+                total_quantity: (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0),
+                deficit: (p.min_quantity || 0) - ((p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0)),
+            }));
+            return { alerts, count: alerts.length, message: alerts.length === 0 ? "Aucune alerte stock" : `${alerts.length} produit(s) sous le seuil minimum` };
+        }
+
+        // ===== GET SAV STATS =====
         case "get_sav_stats": {
             const period = args?.period || "week";
-            const dateFilter = new Date();
-            if (period === "today") dateFilter.setHours(0, 0, 0, 0);
-            else if (period === "week") dateFilter.setDate(dateFilter.getDate() - 7);
-            else if (period === "month") dateFilter.setMonth(dateFilter.getMonth() - 1);
+            const dateFilter = getDateFilter(period) || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-            const { data, error } = await db
-                .from("sav_requests")
-                .select("status")
-                .gte("requested_at", dateFilter.toISOString());
-
+            const { data, error } = await db.from("sav_requests")
+                .select("status, urgent").gte("requested_at", dateFilter.toISOString());
             if (error) return { error: error.message };
 
-            const stats: Record<string, number> = { total: 0, nouvelle: 0, en_cours: 0, terminee: 0, archivee: 0 };
+            const stats = { total: 0, nouvelle: 0, en_cours: 0, terminee: 0, archivee: 0, urgents: 0 };
             for (const row of data || []) {
                 stats.total++;
-                const s = row.status || "nouveau";
-                if (s in stats) stats[s]++;
+                const s = row.status || "nouvelle";
+                if (s in stats) (stats as any)[s]++;
+                if (row.urgent) stats.urgents++;
             }
             return { period, stats };
         }
 
-        case "get_client_history": {
-            const [savRes, oppRes, maintRes] = await Promise.all([
-                db.from("sav_requests").select("id, client_name, system_type, problem_desc, status, requested_at").eq("client_id", args.client_id).order("requested_at", { ascending: false }).limit(5),
-                db.from("opportunites").select("id, titre, statut, montant_estime, date_creation").eq("client_id", args.client_id).order("date_creation", { ascending: false }).limit(5),
-                db.from("maintenance_contracts").select("id, client_name, system_type, status, address").eq("client_id", args.client_id).limit(5),
+        // ===== GET DASHBOARD SUMMARY =====
+        case "get_dashboard_summary": {
+            const [savRes, oppRes, stockRes, maintRes] = await Promise.all([
+                db.from("sav_requests").select("status, urgent").in("status", ["nouvelle", "en_cours"]),
+                db.from("opportunites").select("statut, statut_final, prioritaire, archive").or("archive.is.null,archive.eq.false"),
+                db.from("stock_products").select("depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity").gt("min_quantity", 0),
+                db.from("maintenance_contracts").select("status").eq("status", "actif"),
             ]);
 
+            // SAV stats
+            const savData = savRes.data || [];
+            const savStats = { nouvelles: 0, en_cours: 0, urgents: 0 };
+            for (const s of savData) {
+                if (s.status === "nouvelle") savStats.nouvelles++;
+                if (s.status === "en_cours") savStats.en_cours++;
+                if (s.urgent) savStats.urgents++;
+            }
+
+            // Opp stats
+            const oppData = oppRes.data || [];
+            const oppStats: Record<string, number> = { total_actives: 0, prioritaires: 0, gagne: 0, perdu: 0 };
+            for (const o of oppData) {
+                if (!o.statut_final) oppStats.total_actives++;
+                if (o.prioritaire) oppStats.prioritaires++;
+                if (o.statut_final === "gagne") oppStats.gagne++;
+                if (o.statut_final === "perdu") oppStats.perdu++;
+            }
+
+            // Stock alerts
+            const stockData = stockRes.data || [];
+            let stockAlerts = 0;
+            for (const p of stockData) {
+                const total = (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0);
+                if (total < (p.min_quantity || 0)) stockAlerts++;
+            }
+
             return {
-                sav_requests: savRes.data || [],
-                opportunites: oppRes.data || [],
-                maintenance_contracts: maintRes.data || [],
+                sav: savStats,
+                opportunites: oppStats,
+                stock_alerts: stockAlerts,
+                maintenance_active: (maintRes.data || []).length,
             };
         }
 
-        case "check_stock": {
-            const { data, error } = await db
-                .from("stock_products")
-                .select("id, name, code_article, marque, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity")
-                .or(`name.ilike.%${args.query}%,code_article.ilike.%${args.query}%`)
-                .limit(10);
-
+        // ===== LIST USERS =====
+        case "list_users": {
+            const { data, error } = await db.from("users").select("id, display_name, email, role").order("display_name");
             if (error) return { error: error.message };
-            return { products: data || [], count: (data || []).length };
+            return { users: data || [], count: (data || []).length };
         }
 
+        // ===== CREATE SAV =====
+        case "create_sav_request": {
+            const validClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
+            const insertData: any = {
+                client_name: args.client_name,
+                phone: args.phone || null, address: args.address || null,
+                system_type: args.system_type || "autre",
+                problem_desc: args.problem_desc,
+                urgent: args.urgent || false, status: "nouvelle",
+            };
+            if (validClientId) insertData.client_id = validClientId;
+            if (args.assigned_user_id) insertData.assigned_user_id = args.assigned_user_id;
+
+            const { data, error } = await db.from("sav_requests").insert(insertData)
+                .select("id, client_name, status, system_type, problem_desc").single();
+            if (error) return { error: error.message };
+            return { success: true, sav_request: data };
+        }
+
+        // ===== CREATE OPPORTUNITY =====
+        case "create_opportunity": {
+            const validOppClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
+            const oppInsertData: any = {
+                titre: args.titre, description: args.description || "",
+                montant_estime: args.montant_estime || null,
+                suivi_par: args.suivi_par || "Quentin", statut: "a-contacter",
+            };
+            if (validOppClientId) oppInsertData.client_id = validOppClientId;
+
+            const { data, error } = await db.from("opportunites").insert(oppInsertData)
+                .select("id, titre, statut").single();
+            if (error) return { error: error.message };
+            return { success: true, opportunity: data };
+        }
+
+        // ===== UPDATE SAV STATUS =====
+        case "update_sav_status": {
+            const updateData: any = { status: args.new_status };
+            if (args.new_status === "terminee") updateData.resolved_at = new Date().toISOString();
+            if (args.new_status === "archivee") updateData.archived_at = new Date().toISOString();
+
+            const { data, error } = await db.from("sav_requests").update(updateData)
+                .eq("id", args.sav_id)
+                .select("id, client_name, status").single();
+            if (error) return { error: error.message };
+            return { success: true, sav_request: data };
+        }
+
+        // ===== UPDATE OPPORTUNITY STATUS =====
+        case "update_opportunity_status": {
+            const oppUpdate: any = { date_modification: new Date().toISOString() };
+            if (args.new_statut) oppUpdate.statut = args.new_statut;
+            if (args.statut_final) {
+                oppUpdate.statut_final = args.statut_final;
+                oppUpdate.date_cloture = new Date().toISOString();
+            }
+
+            const { data, error } = await db.from("opportunites").update(oppUpdate)
+                .eq("id", args.opportunity_id)
+                .select("id, titre, statut, statut_final").single();
+            if (error) return { error: error.message };
+            return { success: true, opportunity: data };
+        }
+
+        // ===== HITL =====
         case "ask_user_confirmation": {
             let details = {};
             try { details = JSON.parse(args.details); } catch { details = {}; }
-            return {
-                _hitl: true,
-                type: "confirm",
-                message: args.message,
-                details,
-                pendingAction: args.action_type,
-            };
+            return { _hitl: true, type: "confirm", message: args.message, details, pendingAction: args.action_type };
         }
 
         case "ask_user_selection": {
             let options = [];
             try { options = JSON.parse(args.options); } catch { options = []; }
-            return {
-                _hitl: true,
-                type: "select",
-                message: args.message,
-                options,
-                pendingAction: "select",
-            };
+            return { _hitl: true, type: "select", message: args.message, options, pendingAction: "select" };
         }
 
         default:
@@ -468,30 +711,21 @@ async function executeTool(toolName: string, args: any): Promise<any> {
     }
 }
 
-// --- Process Gemini response (with recursive tool call handling) ---
-async function processGeminiResponse(
-    geminiResult: any,
-    messages: any[],
-    depth = 0
-): Promise<any> {
+// --- Process Gemini response ---
+async function processGeminiResponse(geminiResult: any, messages: any[], depth = 0): Promise<any> {
     if (depth > 5) return { type: "error", message: "Trop d'étapes. Reformulez votre demande." };
 
     const candidate = geminiResult?.candidates?.[0];
-    if (!candidate?.content?.parts) {
-        return { type: "error", message: "Réponse inattendue du modèle." };
-    }
+    if (!candidate?.content?.parts) return { type: "error", message: "Réponse inattendue du modèle." };
 
-    // Collect ALL function calls from this response (Gemini can return multiple in parallel)
     const functionCalls = candidate.content.parts.filter((p: any) => p.functionCall);
     const textParts = candidate.content.parts.filter((p: any) => p.text);
 
     if (functionCalls.length === 0) {
-        // No function calls — return text
         const text = textParts.map((p: any) => p.text).join("\n");
         return { type: "text", message: text || "Je n'ai pas compris. Pouvez-vous reformuler ?" };
     }
 
-    // Execute ALL function calls
     const modelParts: any[] = [];
     const responseParts: any[] = [];
     let hitlResult: any = null;
@@ -499,37 +733,23 @@ async function processGeminiResponse(
     for (const part of functionCalls) {
         const { name, args } = part.functionCall;
         const result = await executeTool(name, args || {});
-
-        // If HITL needed, save it but still execute remaining non-HITL calls
-        if (result?._hitl) {
-            delete result._hitl;
-            hitlResult = result;
-            continue;
-        }
-
+        if (result?._hitl) { delete result._hitl; hitlResult = result; continue; }
         modelParts.push({ functionCall: { name, args: args || {} } });
         responseParts.push({ functionResponse: { name, response: result } });
     }
 
-    // If any call was HITL, return it now (after executing all non-HITL calls)
-    if (hitlResult) {
-        return hitlResult;
-    }
+    if (hitlResult) return hitlResult;
 
-    // Feed ALL results back to Gemini in one turn
     if (modelParts.length > 0) {
         messages.push({ role: "model", parts: modelParts });
         messages.push({ role: "user", parts: responseParts });
-
-        let followUp;
         try {
-            followUp = await callGemini(messages, TOOLS);
+            const followUp = await callGemini(messages, TOOLS);
+            return processGeminiResponse(followUp, messages, depth + 1);
         } catch (error) {
             console.error("Gemini follow-up failed:", error);
             return { type: "error", message: "Erreur lors du traitement." };
         }
-
-        return processGeminiResponse(followUp, messages, depth + 1);
     }
 
     return { type: "text", message: "Je n'ai pas compris. Pouvez-vous reformuler ?" };
@@ -538,18 +758,11 @@ async function processGeminiResponse(
 // --- Main conversation handler ---
 async function handleConversation(body: any): Promise<any> {
     const { message, conversation = [], actionResponse } = body;
-
-    // Build Gemini conversation
     const geminiMessages: any[] = [];
 
     for (const msg of conversation) {
-        geminiMessages.push({
-            role: msg.role === "user" ? "user" : "model",
-            parts: [{ text: msg.content }],
-        });
+        geminiMessages.push({ role: msg.role === "user" ? "user" : "model", parts: [{ text: msg.content }] });
     }
-
-    // Add current message if not already in history
     if (message && (!conversation.length || conversation[conversation.length - 1]?.content !== message)) {
         geminiMessages.push({ role: "user", parts: [{ text: message }] });
     }
@@ -557,48 +770,52 @@ async function handleConversation(body: any): Promise<any> {
     // Handle HITL action responses
     if (actionResponse) {
         if (actionResponse.type === "confirm" && actionResponse.confirmed) {
-            // Direct execution: use the confirmed details to execute the action
-            // without re-calling Gemini (which loses tool call context)
             const details = actionResponse.details || {};
             const pending = (actionResponse.pendingAction || "").toLowerCase();
             console.log("HITL confirm received:", JSON.stringify({ pending, details }));
 
-            const isSav = pending.includes("sav");
-            const isOpportunity = pending.includes("opportunit");
-
-            if (isSav && details.client_name) {
+            // Direct SAV creation
+            if (pending.includes("sav") && !pending.includes("update") && details.client_name) {
                 const result = await executeTool("create_sav_request", {
-                    client_id: details.client_id || null,
-                    client_name: details.client_name || "",
-                    phone: details.phone || null,
-                    address: details.address || null,
-                    system_type: details.system_type || "autre",
-                    problem_desc: details.problem_desc || "",
-                    urgent: details.urgent || false,
-                    assigned_user_id: details.assigned_user_id || null,
+                    client_id: details.client_id || null, client_name: details.client_name || "",
+                    phone: details.phone || null, address: details.address || null,
+                    system_type: details.system_type || "autre", problem_desc: details.problem_desc || "",
+                    urgent: details.urgent || false, assigned_user_id: details.assigned_user_id || null,
                 });
-                console.log("create_sav_request result:", JSON.stringify(result));
-                if (result?.success) {
-                    return { type: "success", message: `SAV créé avec succès pour ${details.client_name || "le client"}.` };
-                }
-                return { type: "error", message: `Erreur lors de la création du SAV : ${result?.error || "erreur inconnue"}` };
+                if (result?.success) return { type: "success", message: `SAV créé avec succès pour ${details.client_name}.` };
+                return { type: "error", message: `Erreur création SAV : ${result?.error || "inconnue"}` };
             }
-            if (isOpportunity && (details.client_name || details.client_id)) {
+
+            // Direct opportunity creation
+            if (pending.includes("opportunit") && !pending.includes("update") && (details.client_name || details.client_id)) {
                 const result = await executeTool("create_opportunity", {
-                    client_id: details.client_id || null,
-                    client_name: details.client_name || "",
-                    titre: details.titre || "",
-                    description: details.description || "",
-                    montant_estime: details.montant_estime || null,
-                    suivi_par: details.suivi_par || "Quentin",
+                    client_id: details.client_id || null, client_name: details.client_name || "",
+                    titre: details.titre || "", description: details.description || "",
+                    montant_estime: details.montant_estime || null, suivi_par: details.suivi_par || "Quentin",
                 });
-                console.log("create_opportunity result:", JSON.stringify(result));
-                if (result?.success) {
-                    return { type: "success", message: `Opportunité créée avec succès pour ${details.client_name || "le client"}.` };
-                }
-                return { type: "error", message: `Erreur lors de la création de l'opportunité : ${result?.error || "erreur inconnue"}` };
+                if (result?.success) return { type: "success", message: `Opportunité créée avec succès pour ${details.client_name || "le client"}.` };
+                return { type: "error", message: `Erreur création opportunité : ${result?.error || "inconnue"}` };
             }
-            // Fallback: re-call Gemini with context (for unknown action types)
+
+            // Direct SAV status update
+            if (pending.includes("update") && pending.includes("sav") && details.sav_id) {
+                const result = await executeTool("update_sav_status", {
+                    sav_id: details.sav_id, new_status: details.new_status,
+                });
+                if (result?.success) return { type: "success", message: `Statut SAV modifié en "${details.new_status}".` };
+                return { type: "error", message: `Erreur modification SAV : ${result?.error || "inconnue"}` };
+            }
+
+            // Direct opportunity status update
+            if (pending.includes("update") && pending.includes("opportunit") && details.opportunity_id) {
+                const result = await executeTool("update_opportunity_status", {
+                    opportunity_id: details.opportunity_id, new_statut: details.new_statut, statut_final: details.statut_final,
+                });
+                if (result?.success) return { type: "success", message: `Statut opportunité modifié.` };
+                return { type: "error", message: `Erreur modification opportunité : ${result?.error || "inconnue"}` };
+            }
+
+            // Fallback
             console.log("HITL confirm fallback — no direct execution match");
             geminiMessages.push({
                 role: "user",
@@ -626,54 +843,39 @@ async function handleConversation(body: any): Promise<any> {
         }
     }
 
-    // Call Gemini
-    let geminiResult;
     try {
-        geminiResult = await callGemini(cleanMessages, TOOLS);
+        const geminiResult = await callGemini(cleanMessages, TOOLS);
+        return processGeminiResponse(geminiResult, cleanMessages);
     } catch (error) {
         console.error("Gemini call failed:", error);
         return { type: "error", message: "Désolé, je n'ai pas pu traiter votre demande." };
     }
-
-    return processGeminiResponse(geminiResult, cleanMessages);
 }
 
 // --- HTTP Handler ---
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
-        return new Response("ok", { headers: corsHeaders });
-    }
-
+    if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
     if (req.method !== "POST") {
         return new Response(JSON.stringify({ error: "Method not allowed" }), {
-            status: 405,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
 
     try {
         const body = await req.json();
-
         if (!body.message && !body.actionResponse) {
-            return new Response(
-                JSON.stringify({ type: "error", message: "Aucun message reçu." }),
-                { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+            return new Response(JSON.stringify({ type: "error", message: "Aucun message reçu." }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-
         const result = await handleConversation(body);
-
         return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Handler error:", error);
         return new Response(
             JSON.stringify({ type: "error", message: `Erreur interne: ${error.message}` }),
-            {
-                status: 500,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
     }
 });
