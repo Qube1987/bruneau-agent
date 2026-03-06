@@ -33,6 +33,14 @@ function isSameDay(d1, d2) {
         d1.getDate() === d2.getDate();
 }
 
+function parseAptDate(dateStr) {
+    if (!dateStr) return null;
+    try {
+        // Handle both "YYYY-MM-DD HH:MM:SS" and ISO format
+        return new Date(dateStr.replace(' ', 'T'));
+    } catch { return null; }
+}
+
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedUsers, setSelectedUsers] = useState([]);
@@ -64,8 +72,6 @@ export default function AgendaPanel() {
         setLoading(true);
         try {
             const allApts = [];
-            const { data: { session } } = await supabase.auth.getSession();
-            const token = session?.access_token || SUPABASE_ANON;
 
             for (const userCode of selectedUsers) {
                 const member = TEAM_MEMBERS.find(m => m.code === userCode);
@@ -83,9 +89,21 @@ export default function AgendaPanel() {
                     });
 
                     if (resp.data?.success && resp.data.data) {
-                        const apts = Array.isArray(resp.data.data) ? resp.data.data : Object.values(resp.data.data);
+                        const raw = resp.data.data;
+                        const apts = Array.isArray(raw) ? raw : Object.values(raw);
+                        console.log(`Agenda ${member?.name}: ${apts.length} RDV, sample:`, apts[0]);
                         apts.forEach(apt => {
-                            allApts.push({ ...apt, _userCode: userCode, _userName: member?.name || userCode, _color: member?.color || '#6c5ce7' });
+                            // Extrabat returns objet/titre — map both
+                            const title = apt.objet || apt.titre || apt.title || apt.label || '(sans titre)';
+                            allApts.push({
+                                ...apt,
+                                _title: title,
+                                _userCode: userCode,
+                                _userName: member?.name || userCode,
+                                _color: member?.color || '#6c5ce7',
+                                _start: parseAptDate(apt.debut),
+                                _end: parseAptDate(apt.fin),
+                            });
                         });
                     }
                 } catch (e) {
@@ -120,29 +138,12 @@ export default function AgendaPanel() {
 
     const goToToday = () => setWeekStart(getWeekStart(new Date()));
 
-    const getAptsForDayAndHour = (day, hour) => {
-        return appointments.filter(apt => {
-            try {
-                const start = new Date(apt.debut.replace(' ', 'T'));
-                const end = new Date(apt.fin.replace(' ', 'T'));
-                if (!isSameDay(start, day)) return false;
-                const startH = start.getHours();
-                const endH = end.getHours() + (end.getMinutes() > 0 ? 1 : 0);
-                return startH <= hour && hour < endH;
-            } catch { return false; }
-        });
-    };
-
+    // Group appointments by day — only show at start hour, not every hour
     const getAptsForDay = (day) => {
-        return appointments.filter(apt => {
-            try {
-                const start = new Date(apt.debut.replace(' ', 'T'));
-                return isSameDay(start, day);
-            } catch { return false; }
-        }).sort((a, b) => new Date(a.debut.replace(' ', 'T')) - new Date(b.debut.replace(' ', 'T')));
+        return appointments
+            .filter(apt => apt._start && isSameDay(apt._start, day))
+            .sort((a, b) => a._start - b._start);
     };
-
-    const timeSlots = Array.from({ length: 11 }, (_, i) => i + 7); // 7h → 17h
 
     const today = new Date();
 
@@ -152,6 +153,9 @@ export default function AgendaPanel() {
                 <div className="agenda-panel__header-left">
                     <span className="agenda-panel__icon">📅</span>
                     <span className="agenda-panel__title">Agendas</span>
+                    {selectedUsers.length > 0 && !isExpanded && (
+                        <span className="agenda-panel__badge">{selectedUsers.length}</span>
+                    )}
                 </div>
                 <span className={`agenda-panel__chevron ${isExpanded ? 'agenda-panel__chevron--open' : ''}`}>▾</span>
             </button>
@@ -185,57 +189,50 @@ export default function AgendaPanel() {
                         ))}
                     </div>
 
-                    {/* Calendar grid */}
+                    {/* Calendar — simple list view per day */}
                     {selectedUsers.length === 0 ? (
                         <div className="agenda-panel__empty">
                             <span>📅</span>
                             <p>Cochez un ou plusieurs membres pour afficher leurs agendas</p>
                         </div>
                     ) : (
-                        <div className="agenda-panel__grid-wrapper">
-                            <div className="agenda-panel__grid">
-                                {/* Header row */}
-                                <div className="agenda-panel__grid-header agenda-panel__grid-time" />
-                                {weekDays.map((day, i) => {
-                                    const isToday = isSameDay(day, today);
-                                    return (
-                                        <div key={i} className={`agenda-panel__grid-header ${isToday ? 'agenda-panel__grid-header--today' : ''}`}>
+                        <div className="agenda-panel__week">
+                            {weekDays.map((day, i) => {
+                                const isToday = isSameDay(day, today);
+                                const dayApts = getAptsForDay(day);
+                                return (
+                                    <div key={i} className={`agenda-panel__day ${isToday ? 'agenda-panel__day--today' : ''}`}>
+                                        <div className="agenda-panel__day-header">
                                             <span className="agenda-panel__day-name">{DAYS_FR[day.getDay()]}</span>
                                             <span className="agenda-panel__day-num">{day.getDate()}</span>
                                         </div>
-                                    );
-                                })}
-
-                                {/* Time rows */}
-                                {timeSlots.map(hour => (
-                                    <>
-                                        <div key={`t-${hour}`} className="agenda-panel__grid-time">
-                                            {hour}:00
-                                        </div>
-                                        {weekDays.map((day, di) => {
-                                            const apts = getAptsForDayAndHour(day, hour);
-                                            const isToday = isSameDay(day, today);
-                                            return (
-                                                <div key={`${hour}-${di}`} className={`agenda-panel__grid-cell ${isToday ? 'agenda-panel__grid-cell--today' : ''}`}>
-                                                    {apts.map((apt, ai) => (
+                                        <div className="agenda-panel__day-list">
+                                            {dayApts.length === 0 ? (
+                                                <div className="agenda-panel__no-apt">—</div>
+                                            ) : (
+                                                dayApts.map((apt, ai) => {
+                                                    const startH = apt._start ? `${String(apt._start.getHours()).padStart(2, '0')}:${String(apt._start.getMinutes()).padStart(2, '0')}` : '';
+                                                    const endH = apt._end ? `${String(apt._end.getHours()).padStart(2, '0')}:${String(apt._end.getMinutes()).padStart(2, '0')}` : '';
+                                                    return (
                                                         <div
-                                                            key={ai}
+                                                            key={apt.id || ai}
                                                             className="agenda-panel__apt"
-                                                            style={{ borderLeftColor: apt._color, background: `${apt._color}18` }}
-                                                            title={`${apt.objet}\n${apt._userName}\n${apt.debut} → ${apt.fin}`}
+                                                            style={{ borderLeftColor: apt._color, background: `${apt._color}15` }}
+                                                            title={`${apt._title}\n${apt._userName}\n${startH} → ${endH}`}
                                                         >
-                                                            <span className="agenda-panel__apt-time">
-                                                                {new Date(apt.debut.replace(' ', 'T')).getHours()}:{String(new Date(apt.debut.replace(' ', 'T')).getMinutes()).padStart(2, '0')}
-                                                            </span>
-                                                            <span className="agenda-panel__apt-title">{apt.objet}</span>
+                                                            <div className="agenda-panel__apt-time">{startH} - {endH}</div>
+                                                            <div className="agenda-panel__apt-title">{apt._title}</div>
+                                                            {selectedUsers.length > 1 && (
+                                                                <div className="agenda-panel__apt-user" style={{ color: apt._color }}>{apt._userName}</div>
+                                                            )}
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            );
-                                        })}
-                                    </>
-                                ))}
-                            </div>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>

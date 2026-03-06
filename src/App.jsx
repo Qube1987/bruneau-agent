@@ -129,6 +129,9 @@ export default function App() {
         </div>
       </header>
 
+      {/* Agenda Panel */}
+      <AgendaPanel />
+
       {/* Chat Area */}
       <div className={`chat ${isEmpty ? 'chat--empty' : ''}`} ref={chatRef}>
         {isEmpty ? (
@@ -183,9 +186,6 @@ export default function App() {
           })
         )}
       </div>
-
-      {/* Agenda Panel */}
-      <AgendaPanel />
 
       {/* Input Area */}
       <div className="input-area">

@@ -753,8 +753,9 @@ body {
 
 /* ===== Agenda Panel ===== */
 .agenda-panel {
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
+  flex-shrink: 0;
 }
 
 .agenda-panel__header {
@@ -791,6 +792,17 @@ body {
   letter-spacing: 0.02em;
 }
 
+.agenda-panel__badge {
+  background: var(--accent);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
 .agenda-panel__chevron {
   font-size: var(--font-sm);
   color: var(--text-secondary);
@@ -807,6 +819,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  max-height: 45vh;
+  overflow-y: auto;
 }
 
 /* Navigation */
@@ -854,6 +868,7 @@ body {
   font-size: var(--font-md);
   color: var(--accent-light);
   animation: spin 1s linear infinite;
+  display: inline-block;
 }
 
 @keyframes spin {
@@ -926,106 +941,93 @@ body {
   opacity: 0.5;
 }
 
-/* Calendar grid */
-.agenda-panel__grid-wrapper {
-  overflow-x: auto;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-}
-
-.agenda-panel__grid {
+/* Week columns layout */
+.agenda-panel__week {
   display: grid;
-  grid-template-columns: 50px repeat(5, minmax(100px, 1fr));
-  min-width: 600px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  min-height: 80px;
 }
 
-.agenda-panel__grid-header {
-  padding: 6px 4px;
-  text-align: center;
-  font-size: var(--font-xs);
+.agenda-panel__day {
+  background: var(--bg-glass);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.agenda-panel__day--today {
+  border-color: var(--accent);
+  background: rgba(108, 92, 231, 0.08);
+}
+
+.agenda-panel__day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 6px;
   background: var(--bg-glass);
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 2;
 }
 
-.agenda-panel__grid-header--today {
-  background: rgba(108, 92, 231, 0.15);
-  border-bottom-color: var(--accent);
+.agenda-panel__day--today .agenda-panel__day-header {
+  background: rgba(108, 92, 231, 0.12);
 }
 
 .agenda-panel__day-name {
-  display: block;
-  font-weight: 500;
+  font-size: 0.65rem;
+  font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
-  font-size: 0.65rem;
   letter-spacing: 0.05em;
 }
 
 .agenda-panel__day-num {
-  display: block;
+  font-size: var(--font-sm);
   font-weight: 700;
   color: var(--text-primary);
-  font-size: var(--font-md);
 }
 
-.agenda-panel__grid-header--today .agenda-panel__day-num {
+.agenda-panel__day--today .agenda-panel__day-num {
   color: var(--accent-light);
 }
 
-.agenda-panel__grid-time {
-  padding: 4px 6px;
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-align: right;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  background: var(--bg-secondary);
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  min-height: 36px;
+.agenda-panel__day-list {
+  padding: 3px;
   display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 40px;
 }
 
-.agenda-panel__grid-cell {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  border-right: 1px solid rgba(255, 255, 255, 0.03);
-  padding: 1px;
-  min-height: 36px;
-  position: relative;
-}
-
-.agenda-panel__grid-cell--today {
-  background: rgba(108, 92, 231, 0.04);
+.agenda-panel__no-apt {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  text-align: center;
+  padding: 8px 0;
+  opacity: 0.4;
 }
 
 /* Appointment card */
 .agenda-panel__apt {
-  padding: 2px 4px;
+  padding: 4px 6px;
   border-radius: 4px;
   border-left: 3px solid var(--accent);
-  font-size: 0.6rem;
-  line-height: 1.3;
-  overflow: hidden;
+  font-size: var(--font-xs);
+  line-height: 1.35;
   cursor: default;
-  margin-bottom: 1px;
-  transition: background var(--transition-fast);
+  transition: filter var(--transition-fast);
 }
 
 .agenda-panel__apt:hover {
-  filter: brightness(1.3);
+  filter: brightness(1.4);
 }
 
 .agenda-panel__apt-time {
+  font-size: 0.65rem;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-right: 3px;
+  margin-bottom: 1px;
 }
 
 .agenda-panel__apt-title {
@@ -1034,4 +1036,11 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.agenda-panel__apt-user {
+  font-size: 0.6rem;
+  font-weight: 600;
+  margin-top: 1px;
+  opacity: 0.8;
 }
