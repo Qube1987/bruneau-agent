@@ -75,6 +75,8 @@ RÈGLES IMPORTANTES :
 - Quand on te demande "combien de SAV" ou des statistiques, utilise get_sav_stats ou get_dashboard_summary
 - Pour modifier le statut d'un SAV ou d'une opportunité, utilise update_sav_status ou update_opportunity_status (toujours avec confirmation)
 - Pour les alertes stock ou ruptures, utilise get_stock_alerts
+- Pour check_stock, passe la requête telle quelle (ex: "centrales ajax", "détecteurs daitem", "batterie"). La recherche est intelligente et cherche dans le nom du produit, la marque, le fournisseur, les catégories et sous-catégories du stock, et les descriptions du catalogue produits.
+- Le stock est organisé en catégories (ex: "Alarme Ajax Jeweller", "Vidéosurveillance") et sous-catégories (ex: "Centrales", "Détecteurs", "Sirènes")
 
 RECHERCHE DE CLIENTS :
 - search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
@@ -183,11 +185,11 @@ const TOOLS = [
     },
     {
         name: "check_stock",
-        description: "Vérifier le stock d'un produit par nom ou code article",
+        description: "Recherche intelligente de stock. Cherche dans le nom, code article, marque, fournisseur, catégorie, sous-catégorie et description des produits. Passe la requête entière (ex: 'centrales ajax', 'détecteurs daitem', 'batterie yuasa').",
         parameters: {
             type: "OBJECT",
             properties: {
-                query: { type: "STRING", description: "Nom ou code article du produit" },
+                query: { type: "STRING", description: "Requête de recherche (mots-clés du produit, marque, catégorie, etc.)" },
             },
             required: ["query"],
         },
@@ -525,20 +527,97 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             };
         }
 
-        // ===== CHECK STOCK =====
+        // ===== CHECK STOCK (smart multi-strategy search) =====
         case "check_stock": {
-            const { data, error } = await db.from("stock_products")
-                .select("id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity")
-                .or(`name.ilike.%${args.query}%,code_article.ilike.%${args.query}%,marque.ilike.%${args.query}%`)
-                .limit(10);
-            if (error) return { error: error.message };
+            const searchTerms = args.query.split(/\s+/).filter((w: string) => w.length > 1);
+            const allIdsFound = new Set<string>();
+            const allResults: any[] = [];
 
-            const results = (data || []).map((p: any) => ({
-                ...p,
-                total_quantity: (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0),
-                is_low: ((p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0)) < (p.min_quantity || 0),
-            }));
-            return { products: results, count: results.length };
+            // Strategy 1: Direct search on stock_products fields (name, code_article, marque, fournisseur)
+            const directOr = searchTerms.flatMap((term: string) => [
+                `name.ilike.%${term}%`, `code_article.ilike.%${term}%`,
+                `marque.ilike.%${term}%`, `fournisseur.ilike.%${term}%`,
+            ]).join(",");
+
+            const { data: directData } = await db.from("stock_products")
+                .select("id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity, subcategory_id")
+                .or(directOr).limit(20);
+
+            for (const p of directData || []) { allIdsFound.add(p.id); allResults.push(p); }
+
+            // Strategy 2: Search via subcategories and categories
+            const subcatOr = searchTerms.map((t: string) => `name.ilike.%${t}%`).join(",");
+            const { data: subcatMatches } = await db.from("stock_subcategories").select("id").or(subcatOr);
+            const catOr = searchTerms.map((t: string) => `name.ilike.%${t}%`).join(",");
+            const { data: catMatches } = await db.from("stock_categories").select("id, stock_subcategories(id)").or(catOr);
+
+            const matchSubcatIds = new Set<string>([
+                ...(subcatMatches || []).map((s: any) => s.id),
+                ...(catMatches || []).flatMap((c: any) => (c.stock_subcategories || []).map((s: any) => s.id)),
+            ]);
+
+            if (matchSubcatIds.size > 0) {
+                const { data: subcatProducts } = await db.from("stock_products")
+                    .select("id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity, subcategory_id")
+                    .in("subcategory_id", [...matchSubcatIds]).limit(30);
+                for (const p of subcatProducts || []) {
+                    if (!allIdsFound.has(p.id)) { allIdsFound.add(p.id); allResults.push(p); }
+                }
+            }
+
+            // Strategy 3: Search via linked products table (description, category)
+            const productOr = searchTerms.flatMap((t: string) => [
+                `name.ilike.%${t}%`, `description_short.ilike.%${t}%`, `category.ilike.%${t}%`,
+            ]).join(",");
+            const { data: productMatches } = await db.from("products").select("id").or(productOr).limit(20);
+            const matchProductIds = (productMatches || []).map((p: any) => p.id);
+
+            if (matchProductIds.length > 0) {
+                const { data: linkedProducts } = await db.from("stock_products")
+                    .select("id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity, subcategory_id")
+                    .in("product_id", matchProductIds).limit(20);
+                for (const p of linkedProducts || []) {
+                    if (!allIdsFound.has(p.id)) { allIdsFound.add(p.id); allResults.push(p); }
+                }
+            }
+
+            // Enrich with subcategory/category names
+            const uniqueSubcatIds = [...new Set(allResults.map((r: any) => r.subcategory_id).filter(Boolean))];
+            let subcatMap: Record<string, { subcategory: string; category: string }> = {};
+            if (uniqueSubcatIds.length > 0) {
+                const { data: subcats } = await db.from("stock_subcategories")
+                    .select("id, name, stock_categories(name)").in("id", uniqueSubcatIds);
+                for (const sc of subcats || []) {
+                    subcatMap[sc.id] = { subcategory: sc.name, category: sc.stock_categories?.name || "" };
+                }
+            }
+
+            // Score results: products matching MORE search terms rank higher
+            const scored = allResults.map((p: any) => {
+                const info = subcatMap[p.subcategory_id] || { subcategory: "", category: "" };
+                const searchable = `${p.name} ${p.marque} ${p.fournisseur} ${p.code_article} ${info.subcategory} ${info.category}`.toLowerCase();
+                const matchCount = searchTerms.filter((t: string) => searchable.includes(t.toLowerCase())).length;
+                const total = (p.depot_quantity || 0) + (p.paul_truck_quantity || 0) + (p.quentin_truck_quantity || 0);
+                return {
+                    id: p.id, name: p.name, code_article: p.code_article,
+                    marque: p.marque, fournisseur: p.fournisseur,
+                    category: info.category, subcategory: info.subcategory,
+                    depot_quantity: p.depot_quantity || 0,
+                    paul_truck_quantity: p.paul_truck_quantity || 0,
+                    quentin_truck_quantity: p.quentin_truck_quantity || 0,
+                    total_quantity: total, min_quantity: p.min_quantity || 0,
+                    is_low: total < (p.min_quantity || 0),
+                    _score: matchCount,
+                };
+            });
+
+            // Sort by score (most matching terms first), then filter top results
+            scored.sort((a: any, b: any) => b._score - a._score);
+            const topResults = scored.filter((r: any) => r._score === searchTerms.length).length > 0
+                ? scored.filter((r: any) => r._score === searchTerms.length).slice(0, 15)
+                : scored.slice(0, 15);
+
+            return { products: topResults, count: topResults.length, search_terms: searchTerms };
         }
 
         // ===== GET STOCK ALERTS =====
