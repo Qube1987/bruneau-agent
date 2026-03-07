@@ -165,24 +165,48 @@ export default function AgendaPanel() {
     }, [isExpanded, activeTab, selectedUsers, weekStart, fetchAppointments]);
 
     // Fetch SAVs and Opps when their tabs are active
+    const [savLoaded, setSavLoaded] = useState(false);
+    const [oppLoaded, setOppLoaded] = useState(false);
+
     useEffect(() => {
-        if (isExpanded && activeTab === 'sav' && savs.length === 0) {
+        if (!isExpanded) return;
+
+        if (activeTab === 'sav' && !savLoaded) {
             setLoading(true);
-            supabase.from('sav_requests').select('*').neq('status', 'archivee').order('requested_at', { ascending: false }).limit(30)
-                .then(({ data }) => {
-                    if (data) setSavs(data);
+            supabase.from('sav_requests')
+                .select('*')
+                .neq('status', 'archivee')
+                .order('requested_at', { ascending: false })
+                .limit(50)
+                .then(({ data, error }) => {
+                    if (error) {
+                        console.error('Erreur fetch SAV:', error);
+                    } else {
+                        setSavs(data || []);
+                    }
+                    setSavLoaded(true);
                     setLoading(false);
                 });
         }
-        if (isExpanded && activeTab === 'opp' && opps.length === 0) {
+
+        if (activeTab === 'opp' && !oppLoaded) {
             setLoading(true);
-            supabase.from('opportunites').select('*').neq('statut', 'cloture').order('created_at', { ascending: false }).limit(30)
-                .then(({ data }) => {
-                    if (data) setOpps(data);
+            supabase.from('opportunites')
+                .select('*')
+                .eq('archive', false)
+                .order('date_creation', { ascending: false })
+                .limit(50)
+                .then(({ data, error }) => {
+                    if (error) {
+                        console.error('Erreur fetch Opportunités:', error);
+                    } else {
+                        setOpps(data || []);
+                    }
+                    setOppLoaded(true);
                     setLoading(false);
                 });
         }
-    }, [isExpanded, activeTab]);
+    }, [isExpanded, activeTab, savLoaded, oppLoaded]);
 
     const toggleTab = (tab) => {
         if (isExpanded && activeTab === tab) {
