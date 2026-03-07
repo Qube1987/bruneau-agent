@@ -62,6 +62,7 @@ export default function AgendaPanel() {
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
+    const [focusedDayIndex, setFocusedDayIndex] = useState(null);
     const panelRef = useRef(null);
 
     // Persist selection to localStorage
@@ -160,9 +161,9 @@ export default function AgendaPanel() {
         }
     }, [isExpanded, selectedUsers, weekStart, fetchAppointments]);
 
-    const goToPrev = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); };
-    const goToNext = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); };
-    const goToToday = () => setWeekStart(getWeekStart(new Date()));
+    const goToPrev = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); setFocusedDayIndex(null); };
+    const goToNext = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); setFocusedDayIndex(null); };
+    const goToToday = () => { setWeekStart(getWeekStart(new Date())); setFocusedDayIndex(null); };
 
     const toggleFullScreen = async () => {
         if (!document.fullscreenElement) {
@@ -330,7 +331,7 @@ export default function AgendaPanel() {
                         </div>
                     ) : (
                         <div className="agenda-timeline">
-                            <div className="agenda-timeline__grid">
+                            <div className={`agenda-timeline__grid ${focusedDayIndex !== null ? 'agenda-timeline__grid--single' : ''}`}>
                                 {/* Time gutter */}
                                 <div className="agenda-timeline__gutter">
                                     <div className="agenda-timeline__gutter-header" />
@@ -345,6 +346,8 @@ export default function AgendaPanel() {
 
                                 {/* Day columns */}
                                 {weekDays.map((day, di) => {
+                                    if (focusedDayIndex !== null && focusedDayIndex !== di) return null;
+
                                     const isToday = isSameDay(day, today);
                                     const dayApts = getAptsForDay(day);
                                     const laidOut = layoutAptsForDay(dayApts);
@@ -360,7 +363,12 @@ export default function AgendaPanel() {
 
                                     return (
                                         <div key={di} className={`agenda-timeline__day ${isToday ? 'agenda-timeline__day--today' : ''}`}>
-                                            <div className={`agenda-timeline__day-header ${isToday ? 'agenda-timeline__day-header--today' : ''}`}>
+                                            <div
+                                                className={`agenda-timeline__day-header ${isToday ? 'agenda-timeline__day-header--today' : ''}`}
+                                                onClick={() => setFocusedDayIndex(focusedDayIndex === di ? null : di)}
+                                                style={{ cursor: 'pointer' }}
+                                                title={focusedDayIndex === di ? "Voir la semaine" : "Voir uniquement ce jour"}
+                                            >
                                                 <span className="agenda-timeline__day-name">{DAYS_FR[day.getDay()]}</span>
                                                 <span className={`agenda-timeline__day-num ${isToday ? 'agenda-timeline__day-num--today' : ''}`}>{day.getDate()}</span>
                                             </div>

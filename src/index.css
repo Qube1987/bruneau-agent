@@ -979,6 +979,11 @@ body {
   min-width: 500px;
 }
 
+.agenda-timeline__grid--single {
+  grid-template-columns: 42px 1fr;
+  min-width: 0;
+}
+
 /* Time gutter */
 .agenda-timeline__gutter {
   position: sticky;
