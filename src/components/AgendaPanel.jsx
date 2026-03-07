@@ -236,6 +236,7 @@ export default function AgendaPanel() {
             supabase.from('sav_requests')
                 .select('*')
                 .neq('status', 'archivee')
+                .neq('status', 'terminee')
                 .order('requested_at', { ascending: false })
                 .limit(50)
                 .then(({ data, error }) => {
