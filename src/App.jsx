@@ -139,7 +139,7 @@ export default function App() {
             <div className="welcome__icon">🤖</div>
             <h1 className="welcome__title">Bonjour !</h1>
             <p className="welcome__text">
-              Je suis votre assistant vocal. Parlez-moi ou tapez une commande pour gérer vos applications SAV et CRM.
+              Je suis votre assistant vocal. Parlez-moi ou tapez une commande.
             </p>
             <div className="welcome__suggestions">
               {SUGGESTIONS.map((s, i) => (
