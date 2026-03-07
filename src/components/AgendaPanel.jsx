@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, SUPABASE_ANON } from '../lib/supabase';
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 
 const TEAM_MEMBERS = [
     { name: 'Quentin', code: '46516', color: '#6c5ce7' },
@@ -103,22 +103,70 @@ function EmailLink({ email }) {
     );
 }
 
+// Helper: sanitize address field from Extrabat (can be string or object)
+function extractAddr(val) {
+    if (!val) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'object') {
+        return [val.description, val.codePostal, val.ville].filter(Boolean).join(', ');
+    }
+    return '';
+}
+
+// Helper: parse raw Extrabat appointments into sanitized objects
+function parseRawApts(rawData, userCode, member) {
+    const result = [];
+    const apts = Array.isArray(rawData) ? rawData : Object.values(rawData);
+    apts.forEach(apt => {
+        const objet = apt.objet || apt.titre || apt.title || apt.label || '';
+        let clientName = '';
+        if (apt.clients && apt.clients.length > 0 && apt.clients[0].nom) {
+            clientName = apt.clients[0].nom;
+        } else if (apt.rdvClients?.[0]?.nom) {
+            clientName = apt.rdvClients[0].nom;
+        } else if (apt.client_nom) {
+            clientName = apt.client_nom;
+        } else if (apt.client?.nom) {
+            clientName = apt.client.nom;
+        }
+        const start = parseAptDate(apt.debut);
+        const end = parseAptDate(apt.fin);
+        if (start && end) {
+            result.push({
+                id: apt.id,
+                _clientName: clientName,
+                _objet: typeof objet === 'string' ? objet : '',
+                _title: clientName || (typeof objet === 'string' ? objet : '') || '(sans titre)',
+                _userCode: userCode,
+                _userName: member?.name || userCode,
+                _color: member?.color || '#6c5ce7',
+                _start: start,
+                _end: end,
+                _address: extractAddr(apt.lieu) || extractAddr(apt.adresse) || extractAddr(apt.address) || '',
+                _phone: (() => {
+                    const p = apt.telephone || apt.phone || '';
+                    return typeof p === 'string' ? p : '';
+                })(),
+            });
+        }
+    });
+    return result;
+}
+
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState('agenda');
     const [savs, setSavs] = useState([]);
     const [opps, setOpps] = useState([]);
     const [selectedUsers, setSelectedUsers] = useState(() => {
-        // Restore saved selection from localStorage, default to current user (Quentin)
         try {
             const saved = localStorage.getItem('agenda_selected_users');
             if (saved) return JSON.parse(saved);
         } catch { }
-        return [TEAM_MEMBERS[0].code]; // Default: first team member (Quentin)
+        return [TEAM_MEMBERS[0].code];
     });
     const [activeAptData, setActiveAptData] = useState(null);
     const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
-    const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
     const [focusedDayIndex, setFocusedDayIndex] = useState(null);
@@ -127,6 +175,10 @@ export default function AgendaPanel() {
     const [savInterventionsLoading, setSavInterventionsLoading] = useState(false);
     const [dbUsers, setDbUsers] = useState([]);
     const panelRef = useRef(null);
+
+    // ── Background cache: all team members' appointments keyed by userCode ──
+    const [teamAptsCache, setTeamAptsCache] = useState({});  // { [userCode]: appointment[] }
+    const [cacheLoading, setCacheLoading] = useState(true);  // true while initial load is in progress
 
     // Persist selection to localStorage
     useEffect(() => {
@@ -149,142 +201,98 @@ export default function AgendaPanel() {
         );
     };
 
-    const fetchAppointments = useCallback(async () => {
-        if (selectedUsers.length === 0) {
-            setAppointments([]);
-            return;
-        }
-        setLoading(true);
-        try {
-            const allApts = [];
-            for (const userCode of selectedUsers) {
-                const member = TEAM_MEMBERS.find(m => m.code === userCode);
-                try {
-                    const resp = await supabase.functions.invoke('extrabat-proxy', {
-                        body: {
-                            endpoint: `utilisateur/${userCode}/rendez-vous`,
-                            apiVersion: 'v1',
-                            params: {
-                                date_debut: formatDateYMD(weekStart),
-                                date_fin: formatDateYMD(weekEnd),
-                                include: 'client',
-                            },
-                        },
-                    });
-
-                    if (resp.data?.success && resp.data.data) {
-                        const raw = resp.data.data;
-                        const apts = Array.isArray(raw) ? raw : Object.values(raw);
-                        apts.forEach(apt => {
-                            const objet = apt.objet || apt.titre || apt.title || apt.label || '';
-                            // Extract client name from Extrabat data
-                            let clientName = '';
-                            if (apt.clients && apt.clients.length > 0 && apt.clients[0].nom) {
-                                clientName = apt.clients[0].nom;
-                            } else if (apt.rdvClients?.[0]?.nom) {
-                                clientName = apt.rdvClients[0].nom;
-                            } else if (apt.client_nom) {
-                                clientName = apt.client_nom;
-                            } else if (apt.client?.nom) {
-                                clientName = apt.client.nom;
-                            }
-
-                            const start = parseAptDate(apt.debut);
-                            const end = parseAptDate(apt.fin);
-                            if (start && end) {
-                                allApts.push({
-                                    id: apt.id,
-                                    _clientName: clientName,
-                                    _objet: typeof objet === 'string' ? objet : '',
-                                    _title: clientName || (typeof objet === 'string' ? objet : '') || '(sans titre)',
-                                    _userCode: userCode,
-                                    _userName: member?.name || userCode,
-                                    _color: member?.color || '#6c5ce7',
-                                    _start: start,
-                                    _end: end,
-                                    _address: (() => {
-                                        // Any of lieu/adresse/address can be an object {description, codePostal, ville, ...}
-                                        const extractAddr = (val) => {
-                                            if (!val) return '';
-                                            if (typeof val === 'string') return val;
-                                            if (typeof val === 'object') {
-                                                return [val.description, val.codePostal, val.ville].filter(Boolean).join(', ');
-                                            }
-                                            return '';
-                                        };
-                                        return extractAddr(apt.lieu) || extractAddr(apt.adresse) || extractAddr(apt.address) || '';
-                                    })(),
-                                    // Sanitize phone
-                                    _phone: (() => {
-                                        const p = apt.telephone || apt.phone || '';
-                                        return typeof p === 'string' ? p : '';
-                                    })(),
-                                });
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.error(`Error fetching agenda for ${userCode}:`, e);
-                }
-            }
-            setAppointments(allApts);
-        } catch (e) {
-            console.error('Error fetching appointments:', e);
-        } finally {
-            setLoading(false);
-        }
-    }, [selectedUsers, weekStart]);
-
+    // ── Preload ALL team agendas in background on mount & when week changes ──
     useEffect(() => {
-        if (isExpanded && activeTab === 'agenda' && selectedUsers.length > 0) {
-            fetchAppointments();
-        }
-    }, [isExpanded, activeTab, selectedUsers, weekStart, fetchAppointments]);
+        let cancelled = false;
+        const startStr = formatDateYMD(weekStart);
+        const endStr = formatDateYMD(weekEnd);
 
-    // Fetch SAVs and Opps when their tabs are active
+        setCacheLoading(true);
+
+        // Fetch all members in parallel
+        const fetchAll = async () => {
+            const newCache = {};
+            await Promise.all(
+                TEAM_MEMBERS.map(async (member) => {
+                    try {
+                        const resp = await supabase.functions.invoke('extrabat-proxy', {
+                            body: {
+                                endpoint: `utilisateur/${member.code}/rendez-vous`,
+                                apiVersion: 'v1',
+                                params: {
+                                    date_debut: startStr,
+                                    date_fin: endStr,
+                                    include: 'client',
+                                },
+                            },
+                        });
+                        if (resp.data?.success && resp.data.data) {
+                            newCache[member.code] = parseRawApts(resp.data.data, member.code, member);
+                        } else {
+                            newCache[member.code] = [];
+                        }
+                    } catch (e) {
+                        console.error(`Error preloading agenda for ${member.name}:`, e);
+                        newCache[member.code] = [];
+                    }
+                })
+            );
+            if (!cancelled) {
+                setTeamAptsCache(newCache);
+                setCacheLoading(false);
+            }
+        };
+
+        fetchAll();
+        return () => { cancelled = true; };
+    }, [weekStart]); // re-fetch when week changes
+
+    // ── Derive visible appointments from cache (instant, no network) ──
+    const appointments = (() => {
+        if (selectedUsers.length === 0) return [];
+        const result = [];
+        for (const code of selectedUsers) {
+            const cached = teamAptsCache[code];
+            if (cached) result.push(...cached);
+        }
+        return result;
+    })();
+
+    // Show loading indicator only during initial load or when cache is empty for selected users
+    useEffect(() => {
+        setLoading(cacheLoading && Object.keys(teamAptsCache).length === 0);
+    }, [cacheLoading, teamAptsCache]);
+
+    // ── Preload SAV and Opportunities in background on mount ──
     const [savLoaded, setSavLoaded] = useState(false);
     const [oppLoaded, setOppLoaded] = useState(false);
 
     useEffect(() => {
-        if (!isExpanded) return;
+        // SAV — preload immediately
+        supabase.from('sav_requests')
+            .select('*')
+            .neq('status', 'archivee')
+            .neq('status', 'terminee')
+            .order('requested_at', { ascending: false })
+            .limit(50)
+            .then(({ data, error }) => {
+                if (!error) setSavs(data || []);
+                else console.error('Erreur fetch SAV:', error);
+                setSavLoaded(true);
+            });
 
-        if (activeTab === 'sav' && !savLoaded) {
-            setLoading(true);
-            supabase.from('sav_requests')
-                .select('*')
-                .neq('status', 'archivee')
-                .neq('status', 'terminee')
-                .order('requested_at', { ascending: false })
-                .limit(50)
-                .then(({ data, error }) => {
-                    if (error) {
-                        console.error('Erreur fetch SAV:', error);
-                    } else {
-                        setSavs(data || []);
-                    }
-                    setSavLoaded(true);
-                    setLoading(false);
-                });
-        }
-
-        if (activeTab === 'opp' && !oppLoaded) {
-            setLoading(true);
-            supabase.from('opportunites')
-                .select('*')
-                .eq('archive', false)
-                .order('date_creation', { ascending: false })
-                .limit(50)
-                .then(({ data, error }) => {
-                    if (error) {
-                        console.error('Erreur fetch Opportunités:', error);
-                    } else {
-                        setOpps(data || []);
-                    }
-                    setOppLoaded(true);
-                    setLoading(false);
-                });
-        }
-    }, [isExpanded, activeTab, savLoaded, oppLoaded]);
+        // Opportunités — preload immediately
+        supabase.from('opportunites')
+            .select('*')
+            .eq('archive', false)
+            .order('date_creation', { ascending: false })
+            .limit(50)
+            .then(({ data, error }) => {
+                if (!error) setOpps(data || []);
+                else console.error('Erreur fetch Opportunités:', error);
+                setOppLoaded(true);
+            });
+    }, []);
 
     const toggleTab = (tab) => {
         if (isExpanded && activeTab === tab) {
