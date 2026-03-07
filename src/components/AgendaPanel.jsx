@@ -193,15 +193,32 @@ export default function AgendaPanel() {
                             const end = parseAptDate(apt.fin);
                             if (start && end) {
                                 allApts.push({
-                                    ...apt,
+                                    id: apt.id,
                                     _clientName: clientName,
-                                    _objet: objet,
-                                    _title: clientName || objet || '(sans titre)',
+                                    _objet: typeof objet === 'string' ? objet : '',
+                                    _title: clientName || (typeof objet === 'string' ? objet : '') || '(sans titre)',
                                     _userCode: userCode,
                                     _userName: member?.name || userCode,
                                     _color: member?.color || '#6c5ce7',
                                     _start: start,
                                     _end: end,
+                                    _address: (() => {
+                                        // Any of lieu/adresse/address can be an object {description, codePostal, ville, ...}
+                                        const extractAddr = (val) => {
+                                            if (!val) return '';
+                                            if (typeof val === 'string') return val;
+                                            if (typeof val === 'object') {
+                                                return [val.description, val.codePostal, val.ville].filter(Boolean).join(', ');
+                                            }
+                                            return '';
+                                        };
+                                        return extractAddr(apt.lieu) || extractAddr(apt.adresse) || extractAddr(apt.address) || '';
+                                    })(),
+                                    // Sanitize phone
+                                    _phone: (() => {
+                                        const p = apt.telephone || apt.phone || '';
+                                        return typeof p === 'string' ? p : '';
+                                    })(),
                                 });
                             }
                         });
@@ -569,8 +586,8 @@ export default function AgendaPanel() {
                                                                     color: apt._color,
                                                                     startStr,
                                                                     endStr,
-                                                                    address: apt.lieu || apt.adresse || apt.address || '',
-                                                                    phone: apt.telephone || apt.phone || '',
+                                                                    address: apt._address,
+                                                                    phone: apt._phone,
                                                                 });
                                                             }}
                                                         >
