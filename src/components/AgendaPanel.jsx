@@ -301,10 +301,10 @@ export default function AgendaPanel() {
                             {weekStart.getDate()} {MONTHS_FR[weekStart.getMonth()]} — {weekEnd.getDate()} {MONTHS_FR[weekEnd.getMonth()]} {weekEnd.getFullYear()}
                         </span>
                         <div style={{ flex: 1 }} />
-                        <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran" style={{ marginLeft: 'auto' }}>
+                        {loading && <span className="agenda-panel__loader" style={{ marginRight: '8px' }}>⟳</span>}
+                        <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran">
                             {isFullScreen ? '⛙' : '⛶'}
                         </button>
-                        {loading && <span className="agenda-panel__loader">⟳</span>}
                     </div>
 
                     {/* User checkboxes */}
