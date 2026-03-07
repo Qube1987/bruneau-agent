@@ -756,6 +756,20 @@ body {
   flex-shrink: 0;
 }
 
+.agenda-panel__tabs {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.agenda-panel__tabs::-webkit-scrollbar {
+  display: none;
+}
+
 .agenda-panel--expanded {
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
@@ -1474,4 +1488,45 @@ body {
   .stock-item__controls {
     justify-content: flex-end;
   }
+}
+
+/* ===== Linkable Address & Phone ===== */
+.linkable {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-sm);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  transition: all var(--transition-fast);
+  line-height: 1.3;
+}
+
+.linkable--address {
+  color: var(--accent-light);
+  background: rgba(108, 92, 231, 0.08);
+}
+
+.linkable--address:hover {
+  background: rgba(108, 92, 231, 0.18);
+  text-decoration: underline;
+}
+
+.linkable--phone {
+  color: var(--success);
+  background: rgba(0, 206, 201, 0.08);
+}
+
+.linkable--phone:hover {
+  background: rgba(0, 206, 201, 0.18);
+  text-decoration: underline;
+}
+
+/* Fullscreen adjustments for lists */
+.agenda-panel--fullscreen .sav-list,
+.agenda-panel--fullscreen .sav-detail,
+.agenda-panel--fullscreen .opp-list {
+  max-height: none !important;
+  flex: 1;
 }

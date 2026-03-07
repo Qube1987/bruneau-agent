@@ -47,6 +47,38 @@ function parseAptDate(dateStr) {
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
+// Helper: make address clickable for navigation
+function AddressLink({ address }) {
+    if (!address) return null;
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+    return (
+        <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="linkable linkable--address"
+            onClick={(e) => e.stopPropagation()}
+        >
+            📍 {address}
+        </a>
+    );
+}
+
+// Helper: make phone clickable
+function PhoneLink({ phone }) {
+    if (!phone) return null;
+    const cleaned = phone.replace(/\s/g, '');
+    return (
+        <a
+            href={`tel:${cleaned}`}
+            className="linkable linkable--phone"
+            onClick={(e) => e.stopPropagation()}
+        >
+            📞 {phone}
+        </a>
+    );
+}
+
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState('agenda');
@@ -66,6 +98,10 @@ export default function AgendaPanel() {
     const [loading, setLoading] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
     const [focusedDayIndex, setFocusedDayIndex] = useState(null);
+    const [selectedSav, setSelectedSav] = useState(null);
+    const [savInterventions, setSavInterventions] = useState([]);
+    const [savInterventionsLoading, setSavInterventionsLoading] = useState(false);
+    const [dbUsers, setDbUsers] = useState([]);
     const panelRef = useRef(null);
 
     // Persist selection to localStorage
@@ -217,6 +253,29 @@ export default function AgendaPanel() {
         }
     };
 
+    // Fetch db users once for technician name lookup
+    useEffect(() => {
+        supabase.from('users').select('id, display_name').then(({ data }) => {
+            if (data) setDbUsers(data);
+        });
+    }, []);
+
+    // Handle SAV click: select the SAV and fetch its interventions
+    const handleSavClick = async (sav) => {
+        setSelectedSav(sav);
+        setSavInterventions([]);
+        setSavInterventionsLoading(true);
+        const { data, error } = await supabase
+            .from('sav_interventions')
+            .select('*')
+            .eq('sav_request_id', sav.id)
+            .order('started_at', { ascending: false });
+        if (!error && data) {
+            setSavInterventions(data);
+        }
+        setSavInterventionsLoading(false);
+    };
+
     const goToPrev = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); setFocusedDayIndex(null); };
     const goToNext = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); setFocusedDayIndex(null); };
     const goToToday = () => { setWeekStart(getWeekStart(new Date())); setFocusedDayIndex(null); };
@@ -341,20 +400,20 @@ export default function AgendaPanel() {
             ref={panelRef}
             className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''} ${isFullScreen ? 'agenda-panel--fullscreen' : ''}`}
         >
-            <div className="agenda-panel__tabs" style={{ display: 'flex', gap: '16px', margin: '8px 16px', flexWrap: 'wrap' }}>
+            <div className="agenda-panel__tabs">
                 <button className={`agenda-panel__toggle ${activeTab === 'agenda' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('agenda')} style={{ margin: 0 }}>
-                    <span style={{ marginRight: '4px' }}>📅</span>
+                    <span>📅</span>
                     <span>Agendas</span>
                     <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'agenda' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
                 </button>
                 <button className={`agenda-panel__toggle ${activeTab === 'sav' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('sav')} style={{ margin: 0 }}>
-                    <span style={{ marginRight: '4px' }}>🔧</span>
+                    <span>🔧</span>
                     <span>SAV</span>
                     <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'sav' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
                 </button>
                 <button className={`agenda-panel__toggle ${activeTab === 'opp' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('opp')} style={{ margin: 0 }}>
-                    <span style={{ marginRight: '4px' }}>📋</span>
-                    <span>Opportunités</span>
+                    <span>📋</span>
+                    <span>Opps</span>
                     <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'opp' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
                 </button>
             </div>
@@ -485,6 +544,8 @@ export default function AgendaPanel() {
                                                                     color: apt._color,
                                                                     startStr,
                                                                     endStr,
+                                                                    address: apt.lieu || apt.adresse || apt.address || '',
+                                                                    phone: apt.telephone || apt.phone || '',
                                                                 });
                                                             }}
                                                         >
@@ -517,6 +578,16 @@ export default function AgendaPanel() {
                                     <div className="agenda-detail-sheet__client">{activeAptData.clientName}</div>
                                 )}
                                 <div className="agenda-detail-sheet__objet">{activeAptData.objet}</div>
+                                {activeAptData.address && (
+                                    <div style={{ marginBottom: '8px' }}>
+                                        <AddressLink address={activeAptData.address} />
+                                    </div>
+                                )}
+                                {activeAptData.phone && (
+                                    <div style={{ marginBottom: '8px' }}>
+                                        <PhoneLink phone={activeAptData.phone} />
+                                    </div>
+                                )}
                                 <div className="agenda-detail-sheet__user" style={{ color: activeAptData.color }}>
                                     <span className="agenda-detail-sheet__dot" style={{ background: activeAptData.color }} />
                                     {activeAptData.userName}
@@ -530,31 +601,119 @@ export default function AgendaPanel() {
             {isExpanded && activeTab === 'sav' && (
                 <div className="agenda-panel__content sav-panel__content">
                     <div className="agenda-panel__nav">
-                        <span style={{ fontSize: 'var(--font-md)', fontWeight: 'bold' }}>Dernières demandes SAV</span>
+                        {selectedSav ? (
+                            <>
+                                <button className="agenda-panel__nav-btn" onClick={() => { setSelectedSav(null); setSavInterventions([]); }}>◀ Retour</button>
+                                <span style={{ fontSize: 'var(--font-md)', fontWeight: 'bold', marginLeft: '8px' }}>{selectedSav.client_name || 'SAV'}</span>
+                            </>
+                        ) : (
+                            <span style={{ fontSize: 'var(--font-md)', fontWeight: 'bold' }}>Dernières demandes SAV</span>
+                        )}
                         <div style={{ flex: 1 }} />
                         {loading && <span className="agenda-panel__loader" style={{ marginRight: '8px' }}>⟳</span>}
                         <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran">
                             {isFullScreen ? '⛙' : '⛶'}
                         </button>
                     </div>
-                    <div className="sav-list" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
-                        {savs.length === 0 && !loading && <div className="agenda-panel__empty">Aucun SAV trouvé</div>}
-                        {savs.map(sav => (
-                            <div key={sav.id} style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{sav.client_name || sav.site || 'Client Inconnu'}</span>
-                                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{new Date(sav.requested_at).toLocaleDateString('fr-FR')}</span>
+
+                    {/* SAV Detail View */}
+                    {selectedSav ? (
+                        <div className="sav-detail" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
+                            {/* Client Info */}
+                            <div style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ fontSize: 'var(--font-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                                    {selectedSav.client_name || 'Client Inconnu'}
                                 </div>
-                                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                    {sav.problem_desc}
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'rgba(255,107,107,0.1)', color: 'var(--danger)', borderRadius: '12px' }}>{sav.status}</span>
-                                    {sav.system_type && <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>{sav.system_type}</span>}
-                                </div>
+                                {selectedSav.address && (
+                                    <div style={{ marginBottom: '6px' }}>
+                                        <AddressLink address={selectedSav.address} />
+                                    </div>
+                                )}
+                                {selectedSav.phone && (
+                                    <div style={{ marginBottom: '6px' }}>
+                                        <PhoneLink phone={selectedSav.phone} />
+                                    </div>
+                                )}
+                                {selectedSav.client_email && (
+                                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>✉️ {selectedSav.client_email}</div>
+                                )}
                             </div>
-                        ))}
-                    </div>
+
+                            {/* System & Status */}
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 'var(--font-xs)', padding: '4px 10px', background: 'rgba(255,107,107,0.1)', color: 'var(--danger)', borderRadius: '12px', fontWeight: 600 }}>{selectedSav.status}</span>
+                                {selectedSav.urgent && <span style={{ fontSize: 'var(--font-xs)', padding: '4px 10px', background: 'rgba(255,107,107,0.2)', color: 'var(--danger)', borderRadius: '12px', fontWeight: 600 }}>🚨 Urgent</span>}
+                                {selectedSav.system_type && <span style={{ fontSize: 'var(--font-xs)', padding: '4px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>🛡️ {selectedSav.system_type}</span>}
+                                {selectedSav.system_brand && <span style={{ fontSize: 'var(--font-xs)', padding: '4px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>{selectedSav.system_brand}</span>}
+                                {selectedSav.system_model && <span style={{ fontSize: 'var(--font-xs)', padding: '4px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>{selectedSav.system_model}</span>}
+                            </div>
+
+                            {/* Problem Description */}
+                            <div style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description du problème</div>
+                                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{selectedSav.problem_desc || 'Aucune description'}</div>
+                            </div>
+
+                            {/* Observations / Prediagnostic */}
+                            {selectedSav.prediagnostic && (
+                                <div style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                    <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pré-diagnostic</div>
+                                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{selectedSav.prediagnostic}</div>
+                                </div>
+                            )}
+
+                            {/* Interventions */}
+                            <div style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Interventions {savInterventionsLoading && '⟳'}
+                                </div>
+                                {savInterventions.length === 0 && !savInterventionsLoading && (
+                                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', fontStyle: 'italic' }}>Aucune intervention enregistrée</div>
+                                )}
+                                {savInterventions.map((interv, idx) => {
+                                    const techName = dbUsers.find(u => u.id === interv.technician_id)?.display_name || 'Technicien';
+                                    return (
+                                        <div key={interv.id || idx} style={{ padding: '8px', marginBottom: '6px', background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, color: 'var(--accent-light)' }}>{techName}</span>
+                                                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
+                                                    {interv.started_at ? new Date(interv.started_at).toLocaleDateString('fr-FR') : '—'}
+                                                </span>
+                                            </div>
+                                            {interv.rapport_reformule && <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{interv.rapport_reformule}</div>}
+                                            {!interv.rapport_reformule && interv.rapport_brut && <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{interv.rapport_brut}</div>}
+                                            {!interv.rapport_reformule && !interv.rapport_brut && interv.notes && <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{interv.notes}</div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Date */}
+                            <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', textAlign: 'right' }}>
+                                Demande du {new Date(selectedSav.requested_at).toLocaleDateString('fr-FR')}
+                            </div>
+                        </div>
+                    ) : (
+                        /* SAV List */
+                        <div className="sav-list" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                            {savs.length === 0 && !loading && <div className="agenda-panel__empty">Aucun SAV trouvé</div>}
+                            {savs.map(sav => (
+                                <div key={sav.id} style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', cursor: 'pointer', transition: 'all 0.15s' }} onClick={() => handleSavClick(sav)}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{sav.client_name || sav.site || 'Client Inconnu'}</span>
+                                        <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{new Date(sav.requested_at).toLocaleDateString('fr-FR')}</span>
+                                    </div>
+                                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: '8px', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                        {sav.problem_desc}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'rgba(255,107,107,0.1)', color: 'var(--danger)', borderRadius: '12px' }}>{sav.status}</span>
+                                        {sav.system_type && <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>{sav.system_type}</span>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
