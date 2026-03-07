@@ -790,21 +790,33 @@ body {
 .agenda-panel__toggle {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 0;
-  background: none;
-  border: none;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
   font-family: var(--font-family);
   font-size: var(--font-xs);
   font-weight: 500;
-  transition: color var(--transition-fast);
-  margin: 0 var(--space-md) var(--space-xs);
+  transition: all var(--transition-fast);
+  margin: 0;
 }
 
 .agenda-panel__toggle:hover {
-  color: var(--accent-light);
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
+
+.agenda-panel__toggle--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.agenda-panel__toggle--active:hover {
+  color: white;
 }
 
 .agenda-panel__arrow {

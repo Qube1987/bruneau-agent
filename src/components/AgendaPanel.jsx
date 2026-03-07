@@ -49,6 +49,9 @@ function pad2(n) { return String(n).padStart(2, '0'); }
 
 export default function AgendaPanel() {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [activeTab, setActiveTab] = useState('agenda');
+    const [savs, setSavs] = useState([]);
+    const [opps, setOpps] = useState([]);
     const [selectedUsers, setSelectedUsers] = useState(() => {
         // Restore saved selection from localStorage, default to current user (Quentin)
         try {
@@ -156,10 +159,39 @@ export default function AgendaPanel() {
     }, [selectedUsers, weekStart]);
 
     useEffect(() => {
-        if (isExpanded && selectedUsers.length > 0) {
+        if (isExpanded && activeTab === 'agenda' && selectedUsers.length > 0) {
             fetchAppointments();
         }
-    }, [isExpanded, selectedUsers, weekStart, fetchAppointments]);
+    }, [isExpanded, activeTab, selectedUsers, weekStart, fetchAppointments]);
+
+    // Fetch SAVs and Opps when their tabs are active
+    useEffect(() => {
+        if (isExpanded && activeTab === 'sav' && savs.length === 0) {
+            setLoading(true);
+            supabase.from('sav_requests').select('*').neq('status', 'archivee').order('requested_at', { ascending: false }).limit(30)
+                .then(({ data }) => {
+                    if (data) setSavs(data);
+                    setLoading(false);
+                });
+        }
+        if (isExpanded && activeTab === 'opp' && opps.length === 0) {
+            setLoading(true);
+            supabase.from('opportunites').select('*').neq('statut', 'cloture').order('created_at', { ascending: false }).limit(30)
+                .then(({ data }) => {
+                    if (data) setOpps(data);
+                    setLoading(false);
+                });
+        }
+    }, [isExpanded, activeTab]);
+
+    const toggleTab = (tab) => {
+        if (isExpanded && activeTab === tab) {
+            setIsExpanded(false);
+        } else {
+            setActiveTab(tab);
+            setIsExpanded(true);
+        }
+    };
 
     const goToPrev = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); setFocusedDayIndex(null); };
     const goToNext = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); setFocusedDayIndex(null); };
@@ -285,12 +317,25 @@ export default function AgendaPanel() {
             ref={panelRef}
             className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''} ${isFullScreen ? 'agenda-panel--fullscreen' : ''}`}
         >
-            <button className="agenda-panel__toggle" onClick={() => setIsExpanded(!isExpanded)}>
-                <span>Agendas</span>
-                <span className={`agenda-panel__arrow ${isExpanded ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
-            </button>
+            <div className="agenda-panel__tabs" style={{ display: 'flex', gap: '16px', margin: '8px 16px', flexWrap: 'wrap' }}>
+                <button className={`agenda-panel__toggle ${activeTab === 'agenda' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('agenda')} style={{ margin: 0 }}>
+                    <span style={{ marginRight: '4px' }}>📅</span>
+                    <span>Agendas</span>
+                    <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'agenda' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
+                </button>
+                <button className={`agenda-panel__toggle ${activeTab === 'sav' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('sav')} style={{ margin: 0 }}>
+                    <span style={{ marginRight: '4px' }}>🔧</span>
+                    <span>SAV</span>
+                    <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'sav' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
+                </button>
+                <button className={`agenda-panel__toggle ${activeTab === 'opp' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('opp')} style={{ margin: 0 }}>
+                    <span style={{ marginRight: '4px' }}>📋</span>
+                    <span>Opportunités</span>
+                    <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'opp' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
+                </button>
+            </div>
 
-            {isExpanded && (
+            {isExpanded && activeTab === 'agenda' && (
                 <div className="agenda-panel__content">
                     {/* Navigation */}
                     <div className="agenda-panel__nav">
@@ -455,6 +500,68 @@ export default function AgendaPanel() {
                             </div>
                         </div>
                     )}
+                </div>
+            )}
+
+            {isExpanded && activeTab === 'sav' && (
+                <div className="agenda-panel__content sav-panel__content">
+                    <div className="agenda-panel__nav">
+                        <span style={{ fontSize: 'var(--font-md)', fontWeight: 'bold' }}>Dernières demandes SAV</span>
+                        <div style={{ flex: 1 }} />
+                        {loading && <span className="agenda-panel__loader" style={{ marginRight: '8px' }}>⟳</span>}
+                        <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran">
+                            {isFullScreen ? '⛙' : '⛶'}
+                        </button>
+                    </div>
+                    <div className="sav-list" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                        {savs.length === 0 && !loading && <div className="agenda-panel__empty">Aucun SAV trouvé</div>}
+                        {savs.map(sav => (
+                            <div key={sav.id} style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{sav.client_name || sav.site || 'Client Inconnu'}</span>
+                                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{new Date(sav.requested_at).toLocaleDateString('fr-FR')}</span>
+                                </div>
+                                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                    {sav.problem_desc}
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'rgba(255,107,107,0.1)', color: 'var(--danger)', borderRadius: '12px' }}>{sav.status}</span>
+                                    {sav.system_type && <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>{sav.system_type}</span>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {isExpanded && activeTab === 'opp' && (
+                <div className="agenda-panel__content opp-panel__content">
+                    <div className="agenda-panel__nav">
+                        <span style={{ fontSize: 'var(--font-md)', fontWeight: 'bold' }}>Dernières Opportunités</span>
+                        <div style={{ flex: 1 }} />
+                        {loading && <span className="agenda-panel__loader" style={{ marginRight: '8px' }}>⟳</span>}
+                        <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran">
+                            {isFullScreen ? '⛙' : '⛶'}
+                        </button>
+                    </div>
+                    <div className="opp-list" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                        {opps.length === 0 && !loading && <div className="agenda-panel__empty">Aucune Opportunité trouvée</div>}
+                        {opps.map(opp => (
+                            <div key={opp.id} style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{opp.titre || 'Sans titre'}</span>
+                                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{new Date(opp.created_at || opp.date_creation).toLocaleDateString('fr-FR')}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'rgba(0,206,201,0.1)', color: 'var(--success)', borderRadius: '12px' }}>{opp.statut}</span>
+                                        {opp.suivi_par && <span style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', color: 'var(--text-secondary)' }}>Par {opp.suivi_par}</span>}
+                                    </div>
+                                    {opp.montant_estime && <span style={{ fontWeight: 'bold', color: 'var(--accent-light)' }}>{opp.montant_estime}€</span>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>
