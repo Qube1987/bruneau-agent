@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, SUPABASE_ANON } from '../lib/supabase';
 
 const TEAM_MEMBERS = [
@@ -61,6 +61,8 @@ export default function AgendaPanel() {
     const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
+    const panelRef = useRef(null);
 
     // Persist selection to localStorage
     useEffect(() => {
@@ -162,6 +164,65 @@ export default function AgendaPanel() {
     const goToNext = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); };
     const goToToday = () => setWeekStart(getWeekStart(new Date()));
 
+    const toggleFullScreen = async () => {
+        if (!document.fullscreenElement) {
+            try {
+                if (panelRef.current?.requestFullscreen) {
+                    await panelRef.current.requestFullscreen();
+                } else if (panelRef.current?.webkitRequestFullscreen) {
+                    await panelRef.current.webkitRequestFullscreen();
+                }
+
+                if (window.screen?.orientation?.lock) {
+                    try {
+                        await window.screen.orientation.lock('landscape');
+                    } catch (e) {
+                        console.log('Orientation lock failed:', e);
+                    }
+                }
+                setIsFullScreen(true);
+            } catch (err) {
+                console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                setIsFullScreen(true);
+            }
+        } else {
+            try {
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    await document.webkitExitFullscreen();
+                }
+
+                if (window.screen?.orientation?.unlock) {
+                    window.screen.orientation.unlock();
+                }
+            } catch (err) {
+                console.error(`Error attempting to exit fullscreen: ${err.message}`);
+            }
+            setIsFullScreen(false);
+        }
+    };
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                setIsFullScreen(false);
+                if (window.screen?.orientation?.unlock) {
+                    window.screen.orientation.unlock();
+                }
+            } else {
+                setIsFullScreen(true);
+            }
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+        };
+    }, []);
+
     const getAptsForDay = (day) => {
         return appointments
             .filter(apt => apt._start && isSameDay(apt._start, day))
@@ -219,7 +280,10 @@ export default function AgendaPanel() {
     const timeLabels = Array.from({ length: TOTAL_HOURS }, (_, i) => HOUR_START + i);
 
     return (
-        <div className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''}`}>
+        <div
+            ref={panelRef}
+            className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''} ${isFullScreen ? 'agenda-panel--fullscreen' : ''}`}
+        >
             <button className="agenda-panel__toggle" onClick={() => setIsExpanded(!isExpanded)}>
                 <span>Agendas</span>
                 <span className={`agenda-panel__arrow ${isExpanded ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
@@ -235,6 +299,10 @@ export default function AgendaPanel() {
                         <span className="agenda-panel__date-range">
                             {weekStart.getDate()} {MONTHS_FR[weekStart.getMonth()]} — {weekEnd.getDate()} {MONTHS_FR[weekEnd.getMonth()]} {weekEnd.getFullYear()}
                         </span>
+                        <div style={{ flex: 1 }} />
+                        <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran" style={{ marginLeft: 'auto' }}>
+                            {isFullScreen ? '⛙' : '⛶'}
+                        </button>
                         {loading && <span className="agenda-panel__loader">⟳</span>}
                     </div>
 
