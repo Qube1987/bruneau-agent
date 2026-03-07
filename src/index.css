@@ -1523,6 +1523,42 @@ body {
   text-decoration: underline;
 }
 
+.linkable-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.linkable--sms {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: rgba(253, 203, 110, 0.12);
+  color: #fdcb6e;
+  text-decoration: none;
+  font-size: 14px;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.linkable--sms:hover {
+  background: rgba(253, 203, 110, 0.25);
+  transform: scale(1.1);
+}
+
+.linkable--email {
+  color: #fdcb6e;
+  background: rgba(253, 203, 110, 0.08);
+}
+
+.linkable--email:hover {
+  background: rgba(253, 203, 110, 0.18);
+  text-decoration: underline;
+}
+
 /* Fullscreen adjustments for lists */
 .agenda-panel--fullscreen .sav-list,
 .agenda-panel--fullscreen .sav-detail,

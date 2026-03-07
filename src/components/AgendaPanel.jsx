@@ -47,15 +47,14 @@ function parseAptDate(dateStr) {
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
-// Helper: make address clickable for navigation
+// Helper: make address clickable for navigation (geo: URI triggers OS app chooser: Waze, Google Maps, etc.)
 function AddressLink({ address }) {
     if (!address) return null;
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+    // geo: URI lets the OS propose all navigation apps (Waze, Google Maps, Apple Plans, etc.)
+    const geoUrl = `geo:0,0?q=${encodeURIComponent(address)}`;
     return (
         <a
-            href={mapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={geoUrl}
             className="linkable linkable--address"
             onClick={(e) => e.stopPropagation()}
         >
@@ -64,17 +63,42 @@ function AddressLink({ address }) {
     );
 }
 
-// Helper: make phone clickable
+// Helper: make phone clickable + SMS button with pre-filled message
+const SMS_TEMPLATE = `Bonjour, je suis en route et serai chez vous dans XX min.\nCordialement,\nQuentin Bruneau\nSté Bruneau Protection`;
+
 function PhoneLink({ phone }) {
     if (!phone) return null;
-    const cleaned = phone.replace(/\s/g, '');
+    const cleaned = phone.replace(/[\s.]/g, '');
+    const smsBody = encodeURIComponent(SMS_TEMPLATE);
+    return (
+        <span className="linkable-group" onClick={(e) => e.stopPropagation()}>
+            <a
+                href={`tel:${cleaned}`}
+                className="linkable linkable--phone"
+            >
+                📞 {phone}
+            </a>
+            <a
+                href={`sms:${cleaned}?body=${smsBody}`}
+                className="linkable linkable--sms"
+                title="Envoyer un SMS"
+            >
+                ✉️
+            </a>
+        </span>
+    );
+}
+
+// Helper: make email clickable
+function EmailLink({ email }) {
+    if (!email) return null;
     return (
         <a
-            href={`tel:${cleaned}`}
-            className="linkable linkable--phone"
+            href={`mailto:${email}`}
+            className="linkable linkable--email"
             onClick={(e) => e.stopPropagation()}
         >
-            📞 {phone}
+            ✉️ {email}
         </a>
     );
 }
@@ -635,7 +659,9 @@ export default function AgendaPanel() {
                                     </div>
                                 )}
                                 {selectedSav.client_email && (
-                                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>✉️ {selectedSav.client_email}</div>
+                                    <div style={{ marginBottom: '6px' }}>
+                                        <EmailLink email={selectedSav.client_email} />
+                                    </div>
                                 )}
                             </div>
 
