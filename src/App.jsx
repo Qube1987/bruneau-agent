@@ -42,19 +42,19 @@ export default function App() {
     }
   }, [isListening, currentText]);
 
-  // Auto-send when speech recognition ends naturally (continuous=false)
+  // When speech recognition ends, keep text in the input for review/editing
   const wasListeningRef = useRef(false);
   useEffect(() => {
-    if (wasListeningRef.current && !isListening && !isProcessing) {
-      // Speech just stopped — auto-send if there's text
+    if (wasListeningRef.current && !isListening) {
       const text = getFinalTranscript();
       if (text) {
-        setInputText('');
-        sendMessage(text);
+        setInputText(text);
+        // Focus the input so the user can edit immediately
+        setTimeout(() => inputRef.current?.focus(), 100);
       }
     }
     wasListeningRef.current = isListening;
-  }, [isListening, isProcessing, getFinalTranscript, sendMessage]);
+  }, [isListening, getFinalTranscript]);
 
   // Speak agent responses
   useEffect(() => {
@@ -87,7 +87,7 @@ export default function App() {
   const handleVoiceToggle = () => {
     if (isListening) {
       stopListening();
-      // The auto-send effect will handle sending
+      // Text stays in input for review/editing
     } else {
       setInputText('');
       toggleListening();
