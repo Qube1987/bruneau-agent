@@ -170,41 +170,43 @@ export default function MyDayMap({ onClose }) {
         return () => { cancelled = true; };
     }, [appointments]);
 
-    // Init and update map
+    // Init and update map — recreate on date change to avoid stale tiles
     useEffect(() => {
         if (!mapRef.current) return;
 
-        // Create map if not yet
-        if (!mapInstanceRef.current) {
-            mapInstanceRef.current = L.map(mapRef.current, {
-                zoomControl: false,
-                attributionControl: false,
-            }).setView([46.6, 2.3], 6);
-
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19,
-            }).addTo(mapInstanceRef.current);
-
-            L.control.zoom({ position: 'bottomright' }).addTo(mapInstanceRef.current);
+        // Destroy previous map if any
+        if (mapInstanceRef.current) {
+            mapInstanceRef.current.remove();
+            mapInstanceRef.current = null;
         }
 
-        const map = mapInstanceRef.current;
+        // Create new map
+        const map = L.map(mapRef.current, {
+            zoomControl: false,
+            attributionControl: false,
+        }).setView([48.85, 1.35], 9);
 
-        // Clear previous layers
-        map.eachLayer(layer => {
-            if (!(layer instanceof L.TileLayer)) map.removeLayer(layer);
+        // Use OpenStreetMap tiles (proven working — same as SAV app)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap',
+        }).addTo(map);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        mapInstanceRef.current = map;
+
+        // Force size recalculation after DOM paint
+        requestAnimationFrame(() => {
+            setTimeout(() => map.invalidateSize(), 100);
         });
 
         const geoApts = appointments.filter(a => a.lat && a.lon);
-        if (geoApts.length === 0) return;
 
         // Add markers
         const bounds = [];
         geoApts.forEach((apt, i) => {
             bounds.push([apt.lat, apt.lon]);
-            const startStr = `${pad2(apt.start.getHours())}:${pad2(apt.start.getMinutes())}`;
 
-            // Custom numbered marker
             const icon = L.divIcon({
                 className: 'myday-marker',
                 html: `<div class="myday-marker__circle">${i + 1}</div>`,
@@ -229,24 +231,19 @@ export default function MyDayMap({ onClose }) {
             }
         });
 
-        // Fit bounds
-        if (bounds.length > 0) {
+        // Fit bounds if have geo-located appointments
+        if (bounds.length > 1) {
             map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13 });
+        } else if (bounds.length === 1) {
+            map.setView(bounds[0], 14);
         }
+        // else: keep default view (Normandy area)
 
-        // Invalidate size after render
-        setTimeout(() => map.invalidateSize(), 200);
-    }, [appointments, routes]);
-
-    // Cleanup
-    useEffect(() => {
         return () => {
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove();
-                mapInstanceRef.current = null;
-            }
+            map.remove();
+            mapInstanceRef.current = null;
         };
-    }, []);
+    }, [appointments, routes]);
 
     const geoApts = appointments.filter(a => a.lat && a.lon);
 

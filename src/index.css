@@ -1717,14 +1717,19 @@ body {
 .myday__map {
   width: 100%;
   height: 100%;
-  background: var(--bg-secondary);
+  background: #e0e0e0;
+  z-index: 0;
 }
 
-/* Override leaflet popup/controls for dark theme */
+/* Ensure leaflet tiles render above the container */
+.myday__map .leaflet-tile-pane {
+  z-index: 1;
+}
+
 .myday__map .leaflet-control-zoom a {
-  background: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #333 !important;
+  border-color: #ccc !important;
 }
 
 .myday__loading {
