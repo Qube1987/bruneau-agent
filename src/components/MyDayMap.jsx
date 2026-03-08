@@ -1,12 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
 const QUENTIN_CODE = '46516';
 const SMS_TEMPLATE = `Bonjour, je suis en route et serai chez vous dans XX min.\nCordialement,\nQuentin Bruneau\nSté Bruneau Protection`;
 
-// Sanitize address from Extrabat (can be string or object)
 function extractAddr(val) {
     if (!val) return '';
     if (typeof val === 'string') return val;
@@ -25,7 +22,6 @@ function formatDateYMD(date) {
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
-// Format duration in minutes to human readable
 function formatDuration(mins) {
     if (mins < 60) return `${Math.round(mins)} min`;
     const h = Math.floor(mins / 60);
@@ -33,13 +29,37 @@ function formatDuration(mins) {
     return m > 0 ? `${h}h${pad2(m)}` : `${h}h`;
 }
 
+// Build a Google Maps directions URL with all stops
+function buildGoogleMapsUrl(geoApts) {
+    if (geoApts.length === 0) return null;
+    if (geoApts.length === 1) {
+        const a = geoApts[0];
+        return `https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lon}`;
+    }
+    // Origin = first, destination = last, waypoints = middle
+    const origin = `${geoApts[0].lat},${geoApts[0].lon}`;
+    const dest = `${geoApts[geoApts.length - 1].lat},${geoApts[geoApts.length - 1].lon}`;
+    const waypoints = geoApts.slice(1, -1).map(a => `${a.lat},${a.lon}`).join('|');
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
+    if (waypoints) url += `&waypoints=${waypoints}`;
+    return url;
+}
+
+// Build a static map image URL using OpenStreetMap's staticmap service  
+function buildStaticMapUrl(geoApts) {
+    if (geoApts.length === 0) return null;
+    // Use OSM static map API (no key required)
+    const markers = geoApts.map((a, i) => `${a.lon},${a.lat},lightblue${i + 1}`).join('|');
+    // Center on first apt or average
+    const avgLat = geoApts.reduce((s, a) => s + a.lat, 0) / geoApts.length;
+    const avgLon = geoApts.reduce((s, a) => s + a.lon, 0) / geoApts.length;
+    return `https://staticmap.openstreetmap.de/staticmap.php?center=${avgLat},${avgLon}&zoom=10&size=600x300&maptype=mapnik&markers=${markers}`;
+}
+
 export default function MyDayMap({ onClose }) {
-    const mapRef = useRef(null);
-    const mapInstanceRef = useRef(null);
     const [appointments, setAppointments] = useState([]);
     const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeApt, setActiveApt] = useState(null);
     const [selectedDate, setSelectedDate] = useState(() => new Date());
 
     const goToPrevDay = () => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
@@ -60,7 +80,6 @@ export default function MyDayMap({ onClose }) {
             setLoading(true);
             setAppointments([]);
             setRoutes([]);
-            setActiveApt(null);
             const dayStr = formatDateYMD(selectedDate);
 
             try {
@@ -95,7 +114,6 @@ export default function MyDayMap({ onClose }) {
 
                         if (start && end) {
                             const phone = (() => {
-                                // Try to get phone from client data
                                 const p = apt.telephone || apt.phone
                                     || apt.clients?.[0]?.telephone || apt.clients?.[0]?.portable
                                     || apt.rdvClients?.[0]?.telephone || apt.rdvClients?.[0]?.portable
@@ -117,7 +135,6 @@ export default function MyDayMap({ onClose }) {
                         }
                     });
 
-                    // Sort by start time
                     parsed.sort((a, b) => a.start - b.start);
                     if (!cancelled) setAppointments(parsed);
                 }
@@ -132,10 +149,8 @@ export default function MyDayMap({ onClose }) {
         return () => { cancelled = true; };
     }, [selectedDate]);
 
-    // Fetch routes between consecutive appointments with coordinates
+    // Fetch routes between geolocated appointments
     useEffect(() => {
-        if (appointments.length < 2) { setRoutes([]); return; }
-
         const geoApts = appointments.filter(a => a.lat && a.lon);
         if (geoApts.length < 2) { setRoutes([]); return; }
 
@@ -146,17 +161,15 @@ export default function MyDayMap({ onClose }) {
                 const from = geoApts[i];
                 const to = geoApts[i + 1];
                 try {
-                    const url = `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson`;
+                    const url = `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`;
                     const resp = await fetch(url);
                     const data = await resp.json();
                     if (data.routes?.[0]) {
-                        const route = data.routes[0];
                         newRoutes.push({
                             from: from.id,
                             to: to.id,
-                            durationMin: route.duration / 60,
-                            distanceKm: route.distance / 1000,
-                            geometry: route.geometry,
+                            durationMin: data.routes[0].duration / 60,
+                            distanceKm: data.routes[0].distance / 1000,
                         });
                     }
                 } catch (e) {
@@ -170,82 +183,9 @@ export default function MyDayMap({ onClose }) {
         return () => { cancelled = true; };
     }, [appointments]);
 
-    // Init and update map — recreate on date change to avoid stale tiles
-    useEffect(() => {
-        if (!mapRef.current) return;
-
-        // Destroy previous map if any
-        if (mapInstanceRef.current) {
-            mapInstanceRef.current.remove();
-            mapInstanceRef.current = null;
-        }
-
-        // Create new map
-        const map = L.map(mapRef.current, {
-            zoomControl: false,
-            attributionControl: false,
-        }).setView([48.85, 1.35], 9);
-
-        // Use OpenStreetMap tiles (proven working — same as SAV app)
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap',
-        }).addTo(map);
-
-        L.control.zoom({ position: 'bottomright' }).addTo(map);
-        mapInstanceRef.current = map;
-
-        // Force size recalculation after DOM paint
-        requestAnimationFrame(() => {
-            setTimeout(() => map.invalidateSize(), 100);
-        });
-
-        const geoApts = appointments.filter(a => a.lat && a.lon);
-
-        // Add markers
-        const bounds = [];
-        geoApts.forEach((apt, i) => {
-            bounds.push([apt.lat, apt.lon]);
-
-            const icon = L.divIcon({
-                className: 'myday-marker',
-                html: `<div class="myday-marker__circle">${i + 1}</div>`,
-                iconSize: [36, 36],
-                iconAnchor: [18, 18],
-            });
-
-            const marker = L.marker([apt.lat, apt.lon], { icon }).addTo(map);
-            marker.on('click', () => setActiveApt(apt));
-        });
-
-        // Add route polylines
-        routes.forEach(route => {
-            if (route.geometry?.coordinates) {
-                const latlngs = route.geometry.coordinates.map(c => [c[1], c[0]]);
-                L.polyline(latlngs, {
-                    color: '#6c5ce7',
-                    weight: 3,
-                    opacity: 0.7,
-                    dashArray: '8, 8',
-                }).addTo(map);
-            }
-        });
-
-        // Fit bounds if have geo-located appointments
-        if (bounds.length > 1) {
-            map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13 });
-        } else if (bounds.length === 1) {
-            map.setView(bounds[0], 14);
-        }
-        // else: keep default view (Normandy area)
-
-        return () => {
-            map.remove();
-            mapInstanceRef.current = null;
-        };
-    }, [appointments, routes]);
-
     const geoApts = appointments.filter(a => a.lat && a.lon);
+    const staticMapUrl = buildStaticMapUrl(geoApts);
+    const googleMapsUrl = buildGoogleMapsUrl(geoApts);
 
     return (
         <div className="myday-overlay" onClick={onClose}>
@@ -267,21 +207,51 @@ export default function MyDayMap({ onClose }) {
                     <button className="myday__close" onClick={onClose}>✕</button>
                 </div>
 
-                {/* Map */}
+                {/* Map area — static image (100% reliable, no JS dependencies) */}
                 <div className="myday__map-container">
-                    <div ref={mapRef} className="myday__map" />
-
-                    {loading && (
-                        <div className="myday__loading">
-                            <div className="myday__loading-spinner" />
-                            Chargement de la journée...
-                        </div>
-                    )}
-
-                    {!loading && appointments.length === 0 && (
-                        <div className="myday__empty">
-                            <span>📅</span>
-                            <p>Aucun rendez-vous ce jour</p>
+                    {geoApts.length > 0 && staticMapUrl ? (
+                        <a
+                            href={googleMapsUrl || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="myday__map-link"
+                        >
+                            <img
+                                src={staticMapUrl}
+                                alt="Carte des rendez-vous"
+                                className="myday__map-img"
+                                onError={(e) => {
+                                    // Fallback: if static map fails, show a placeholder
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                }}
+                            />
+                            <div className="myday__map-fallback" style={{ display: 'none' }}>
+                                <span>🗺️</span>
+                                <p>Carte non disponible</p>
+                            </div>
+                            <div className="myday__map-cta">
+                                📍 Ouvrir dans Google Maps
+                            </div>
+                        </a>
+                    ) : (
+                        <div className="myday__map-placeholder">
+                            {loading ? (
+                                <>
+                                    <div className="myday__loading-spinner" />
+                                    <p>Chargement...</p>
+                                </>
+                            ) : appointments.length === 0 ? (
+                                <>
+                                    <span>📅</span>
+                                    <p>Aucun rendez-vous ce jour</p>
+                                </>
+                            ) : (
+                                <>
+                                    <span>📍</span>
+                                    <p>Pas de coordonnées GPS pour ces RDV</p>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
@@ -291,22 +261,13 @@ export default function MyDayMap({ onClose }) {
                     {appointments.map((apt, i) => {
                         const startStr = `${pad2(apt.start.getHours())}:${pad2(apt.start.getMinutes())}`;
                         const endStr = `${pad2(apt.end.getHours())}:${pad2(apt.end.getMinutes())}`;
-                        const isActive = activeApt?.id === apt.id;
                         const routeToNext = routes.find(r => r.from === apt.id);
                         const smsBody = encodeURIComponent(SMS_TEMPLATE);
                         const cleanPhone = apt.phone?.replace(/[\s.]/g, '') || '';
 
                         return (
                             <div key={apt.id || i}>
-                                <div
-                                    className={`myday__card ${isActive ? 'myday__card--active' : ''} ${!apt.lat ? 'myday__card--nomap' : ''}`}
-                                    onClick={() => {
-                                        setActiveApt(apt);
-                                        if (apt.lat && apt.lon && mapInstanceRef.current) {
-                                            mapInstanceRef.current.flyTo([apt.lat, apt.lon], 14, { duration: 0.8 });
-                                        }
-                                    }}
-                                >
+                                <div className="myday__card">
                                     <div className="myday__card-number">{i + 1}</div>
                                     <div className="myday__card-body">
                                         <div className="myday__card-time">{startStr} → {endStr}</div>
@@ -315,7 +276,17 @@ export default function MyDayMap({ onClose }) {
                                             <div className="myday__card-objet">{apt.objet}</div>
                                         )}
                                         {apt.address && (
-                                            <div className="myday__card-address">📍 {apt.address}</div>
+                                            <a
+                                                href={apt.lat && apt.lon
+                                                    ? `https://www.google.com/maps/search/?api=1&query=${apt.lat},${apt.lon}`
+                                                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(apt.address)}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="myday__card-address"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                📍 {apt.address}
+                                            </a>
                                         )}
                                     </div>
                                     <div className="myday__card-actions">
@@ -342,7 +313,7 @@ export default function MyDayMap({ onClose }) {
                                     </div>
                                 </div>
 
-                                {/* Travel time badge between appointments */}
+                                {/* Travel time badge */}
                                 {routeToNext && (
                                     <div className="myday__travel">
                                         <div className="myday__travel-line" />
@@ -352,7 +323,6 @@ export default function MyDayMap({ onClose }) {
                                         <div className="myday__travel-line" />
                                     </div>
                                 )}
-                                {/* If no route but there's a next apt, show a simple separator */}
                                 {!routeToNext && i < appointments.length - 1 && (
                                     <div className="myday__separator" />
                                 )}
