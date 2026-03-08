@@ -727,15 +727,39 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
         // ===== GET CLIENT HISTORY =====
         case "get_client_history": {
+            // First get client name for fallback search
+            const { data: histClient } = await db.from("clients").select("nom").eq("id", args.client_id).single();
+            const clientNom = histClient?.nom || "";
+
+            // Search by client_id UUID first
             const [savRes, oppRes, maintRes] = await Promise.all([
                 db.from("sav_requests").select("id, client_name, system_type, problem_desc, status, urgent, requested_at").eq("client_id", args.client_id).order("requested_at", { ascending: false }).limit(10),
                 db.from("opportunites").select("id, titre, statut, montant_estime, suivi_par, date_creation, statut_final").eq("client_id", args.client_id).order("date_creation", { ascending: false }).limit(10),
                 db.from("maintenance_contracts").select("id, client_name, system_type, status, address, annual_amount").eq("client_id", args.client_id).limit(10),
             ]);
+
+            let savData = savRes.data || [];
+            let maintData = maintRes.data || [];
+
+            // Fallback: if no results by client_id, search by client_name
+            if (clientNom && savData.length === 0) {
+                const { data: savByName } = await db.from("sav_requests")
+                    .select("id, client_name, system_type, problem_desc, status, urgent, requested_at")
+                    .ilike("client_name", `%${clientNom}%`)
+                    .order("requested_at", { ascending: false }).limit(10);
+                savData = savByName || [];
+            }
+            if (clientNom && maintData.length === 0) {
+                const { data: maintByName } = await db.from("maintenance_contracts")
+                    .select("id, client_name, system_type, status, address, annual_amount")
+                    .ilike("client_name", `%${clientNom}%`).limit(10);
+                maintData = maintByName || [];
+            }
+
             return {
-                sav_requests: savRes.data || [], sav_count: (savRes.data || []).length,
+                sav_requests: savData, sav_count: savData.length,
                 opportunites: oppRes.data || [], opp_count: (oppRes.data || []).length,
-                maintenance_contracts: maintRes.data || [], maint_count: (maintRes.data || []).length,
+                maintenance_contracts: maintData, maint_count: maintData.length,
             };
         }
 
@@ -749,16 +773,52 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             if (clientError) return { error: clientError.message };
             if (!clientData) return { error: "Client non trouvé" };
 
-            // Fetch all related data in parallel
-            const [contactsRes, sitesRes, savRes2, oppRes2, maintRes2, devisRes, callNotesRes] = await Promise.all([
+            const detailClientNom = (clientData as any).nom || "";
+
+            // Fetch contacts, sites, opportunities, devis, call_notes by client_id (these are always linked properly)
+            const [contactsRes, sitesRes, oppRes2, devisRes, callNotesRes] = await Promise.all([
                 db.from("client_contacts").select("id, nom, prenom, telephone, email, fonction, principal").eq("client_id", args.client_id).order("principal", { ascending: false }),
                 db.from("client_sites").select("id, label, adresse, code_postal, ville, system_type, system_brand, system_model, battery_installation_year, principal").eq("client_id", args.client_id).order("principal", { ascending: false }),
-                db.from("sav_requests").select("id, client_name, site, address, system_type, system_brand, problem_desc, status, urgent, requested_at, resolved_at").eq("client_id", args.client_id).order("requested_at", { ascending: false }).limit(15),
                 db.from("opportunites").select("id, titre, description, statut, suivi_par, montant_estime, date_creation, statut_final").eq("client_id", args.client_id).order("date_creation", { ascending: false }).limit(10),
-                db.from("maintenance_contracts").select("id, client_name, site, address, city_derived, system_type, system_brand, system_model, status, annual_amount, billing_mode, invoice_sent, invoice_paid, battery_installation_year").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(20),
                 db.from("devis").select("id, devis_number, titre_affaire, status, totaux, created_at").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(10),
                 db.from("call_notes").select("id, call_subject, notes, is_completed, priority, created_at").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(10),
             ]);
+
+            // For SAV and maintenance, search by BOTH client_id AND client_name (fallback for unlinked records)
+            let savData2: any[] = [];
+            let maintData2: any[] = [];
+
+            // Try by client_id first
+            const [savById, maintById] = await Promise.all([
+                db.from("sav_requests").select("id, client_name, site, address, system_type, system_brand, problem_desc, status, urgent, requested_at, resolved_at").eq("client_id", args.client_id).order("requested_at", { ascending: false }).limit(15),
+                db.from("maintenance_contracts").select("id, client_name, site, address, city_derived, system_type, system_brand, system_model, status, annual_amount, billing_mode, invoice_sent, invoice_paid, battery_installation_year").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(20),
+            ]);
+
+            savData2 = savById.data || [];
+            maintData2 = maintById.data || [];
+
+            // Fallback: also search by client_name containing the client's nom
+            if (detailClientNom) {
+                const existingSavIds = new Set(savData2.map((s: any) => s.id));
+                const existingMaintIds = new Set(maintData2.map((m: any) => m.id));
+
+                const [savByName, maintByName] = await Promise.all([
+                    db.from("sav_requests").select("id, client_name, site, address, system_type, system_brand, problem_desc, status, urgent, requested_at, resolved_at")
+                        .ilike("client_name", `%${detailClientNom}%`)
+                        .order("requested_at", { ascending: false }).limit(20),
+                    db.from("maintenance_contracts").select("id, client_name, site, address, city_derived, system_type, system_brand, system_model, status, annual_amount, billing_mode, invoice_sent, invoice_paid, battery_installation_year")
+                        .ilike("client_name", `%${detailClientNom}%`)
+                        .order("created_at", { ascending: false }).limit(30),
+                ]);
+
+                // Merge results, avoiding duplicates
+                for (const s of (savByName.data || [])) {
+                    if (!existingSavIds.has(s.id)) { savData2.push(s); existingSavIds.add(s.id); }
+                }
+                for (const m of (maintByName.data || [])) {
+                    if (!existingMaintIds.has(m.id)) { maintData2.push(m); existingMaintIds.add(m.id); }
+                }
+            }
 
             return {
                 client: { ...clientData, source: "supabase" },
@@ -766,12 +826,12 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 contacts_count: (contactsRes.data || []).length,
                 sites: sitesRes.data || [],
                 sites_count: (sitesRes.data || []).length,
-                sav_requests: savRes2.data || [],
-                sav_count: (savRes2.data || []).length,
+                sav_requests: savData2,
+                sav_count: savData2.length,
                 opportunites: oppRes2.data || [],
                 opp_count: (oppRes2.data || []).length,
-                maintenance_contracts: maintRes2.data || [],
-                maint_count: (maintRes2.data || []).length,
+                maintenance_contracts: maintData2,
+                maint_count: maintData2.length,
                 devis: devisRes.data || [],
                 devis_count: (devisRes.data || []).length,
                 call_notes: callNotesRes.data || [],
