@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAgent } from './hooks/useAgent';
+import { useAuth } from './hooks/useAuth.jsx';
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
 import AgendaPanel from './components/AgendaPanel';
 import MyDayPanel from './components/MyDayPanel';
+import LoginScreen from './components/LoginScreen';
 
 const SUGGESTIONS = [
   { icon: '🔧', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
@@ -14,6 +16,7 @@ const SUGGESTIONS = [
 ];
 
 export default function App() {
+  const { currentUser, loading, signOut } = useAuth();
   const { messages, isProcessing, sendMessage, respondToAction, clearConversation } = useAgent();
   const { isListening, currentText, toggleListening, stopListening, getFinalTranscript } = useSpeechRecognition();
   const { speak } = useSpeechSynthesis();
@@ -98,6 +101,12 @@ export default function App() {
 
   const isEmpty = messages.length === 0;
 
+  // Show loading while checking auth
+  if (loading) return <div className="app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div className="login-loading">Chargement...</div></div>;
+
+  // Show login screen if not authenticated
+  if (!currentUser) return <LoginScreen />;
+
   return (
     <div className="app">
       {/* Header */}
@@ -109,13 +118,13 @@ export default function App() {
             <div className="header__subtitle">Assistant vocal intelligent</div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {messages.length > 0 && (
             <button
               onClick={clearConversation}
               className="header__action-btn"
             >
-              🗑️ Nouveau
+              🗑️
             </button>
           )}
           <button
@@ -123,6 +132,13 @@ export default function App() {
             onClick={() => setShowMyDay(true)}
           >
             ☀️ Ma journée
+          </button>
+          <button
+            className="header__action-btn header__user-btn"
+            onClick={signOut}
+            title="Se déconnecter"
+          >
+            {currentUser.display_name.charAt(0)}
           </button>
         </div>
       </header>
@@ -136,6 +152,8 @@ export default function App() {
         onClose={() => setShowMyDay(false)}
         allApts={agendaData.allApts}
         tasks={agendaData.tasks}
+        userCode={currentUser.extrabat_code}
+        userName={currentUser.display_name}
       />
 
       {/* Chat Area */}

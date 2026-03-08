@@ -18,7 +18,7 @@ function isSameDay(d1, d2) {
         d1.getDate() === d2.getDate();
 }
 
-export default function MyDayPanel({ visible, onClose, allApts, tasks }) {
+export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode, userName }) {
     const [dayOffset, setDayOffset] = useState(0);
 
     if (!visible) return null;
@@ -29,9 +29,16 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks }) {
     const selectedDateStr = selectedDate.toDateString();
     const isToday = dayOffset === 0;
 
-    // Filter appointments for the selected day
+    // Filter appointments for the selected day AND the connected user
     const dayApts = allApts
-        .filter(a => a._start.toDateString() === selectedDateStr)
+        .filter(a => {
+            const sameDay = a._start.toDateString() === selectedDateStr;
+            // Filter by user's extrabat code if provided
+            if (userCode && a._userCode) {
+                return sameDay && String(a._userCode) === String(userCode);
+            }
+            return sameDay;
+        })
         .sort((a, b) => a._start - b._start);
 
     // Find upcoming (next) appointment — only relevant for today
@@ -45,6 +52,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks }) {
     const hour = now.getHours();
     const greeting = isToday
         ? (hour < 12 ? 'Bonjour' : hour < 18 ? 'Bon après-midi' : 'Bonsoir')
+        + (userName ? ` ${userName}` : '')
         : dayOffset === 1 ? 'Demain' : dayOffset === -1 ? 'Hier' : '';
 
     const dayName = selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
