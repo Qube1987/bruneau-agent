@@ -764,8 +764,9 @@ body {
   line-height: 1.6;
   color: var(--text-primary);
   white-space: pre-wrap;
-  max-height: 200px;
+  max-height: 40vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .compose-card__textarea {
@@ -780,7 +781,10 @@ body {
   line-height: 1.6;
   outline: none;
   resize: vertical;
-  min-height: 80px;
+  min-height: 100px;
+  max-height: 40vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   transition: border-color var(--transition-fast);
 }
 
