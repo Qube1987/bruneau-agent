@@ -79,15 +79,44 @@ async function tryDirectRdvCreation(text, token) {
     let clientId = null;
     if (clientName) {
         try {
-            const searchRes = await fetch(PROXY_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': token },
-                body: JSON.stringify({ endpoint: 'clients', apiVersion: 'v2', params: { nomraisonsociale: clientName } }),
-            });
-            const searchData = await searchRes.json();
-            if (searchData.success && Array.isArray(searchData.data) && searchData.data.length > 0) {
-                clientId = searchData.data[0].id;
-                console.log(`[DirectRDV] Found client: ${clientName} -> ID ${clientId}`);
+            // 1) Search in Supabase first (has proper ILIKE fuzzy matching)
+            const { data: sbClients } = await supabase
+                .from('clients')
+                .select('id, nom, prenom, extrabat_id')
+                .or(`nom.ilike.%${clientName}%,prenom.ilike.%${clientName}%`)
+                .limit(5);
+
+            if (sbClients && sbClients.length > 0) {
+                // Find best match - prefer exact name match
+                const best = sbClients.find(c =>
+                    (c.nom || '').toLowerCase().includes(clientName.toLowerCase()) ||
+                    clientName.toLowerCase().includes((c.nom || '').toLowerCase())
+                ) || sbClients[0];
+                if (best.extrabat_id) {
+                    clientId = best.extrabat_id;
+                    console.log(`[DirectRDV] Found client in Supabase: ${best.nom} -> Extrabat ID ${clientId}`);
+                }
+            }
+
+            // 2) Fallback: search in Extrabat with exact name filter
+            if (!clientId) {
+                const searchRes = await fetch(PROXY_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': token },
+                    body: JSON.stringify({ endpoint: 'clients', apiVersion: 'v2', params: { nomraisonsociale: clientName } }),
+                });
+                const searchData = await searchRes.json();
+                if (searchData.success && Array.isArray(searchData.data) && searchData.data.length > 0) {
+                    // Only use if the name actually matches (not just first alphabetical result)
+                    const match = searchData.data.find(c =>
+                        (c.nomraisonsociale || '').toLowerCase().includes(clientName.toLowerCase()) ||
+                        clientName.toLowerCase().includes((c.nomraisonsociale || '').toLowerCase())
+                    );
+                    if (match) {
+                        clientId = match.id;
+                        console.log(`[DirectRDV] Found client in Extrabat: ${match.nomraisonsociale} -> ID ${clientId}`);
+                    }
+                }
             }
         } catch (e) { console.warn('[DirectRDV] Client search failed:', e); }
     }
