@@ -31,7 +31,7 @@ export default function App() {
   const inputRef = useRef(null);
 
   // Push notifications
-  const { isSubscribed, isSupported, subscribe } = usePushNotifications(currentUser?.id);
+  const { isSubscribed, isSupported, subscribe, unsubscribe } = usePushNotifications(currentUser?.id);
   const pushTriedRef = useRef(false);
 
   // Auto-subscribe to push notifications when user is logged in
@@ -125,6 +125,8 @@ export default function App() {
     sendMessage(text);
   };
 
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   const isEmpty = messages.length === 0;
 
   // Show loading while checking auth
@@ -134,7 +136,7 @@ export default function App() {
   if (!currentUser) return <LoginScreen />;
 
   return (
-    <div className="app">
+    <div className="app" onClick={() => showUserMenu && setShowUserMenu(false)}>
       {/* Header */}
       <header className="header">
         <div className="header__brand">
@@ -160,12 +162,46 @@ export default function App() {
             ☀️ Ma journée
           </button>
           <button
-            className="header__action-btn header__user-btn"
-            onClick={signOut}
-            title="Se déconnecter"
+            className="header__action-btn"
+            onClick={() => setShowRdvConfirm(true)}
+            title="Confirmations RDV"
           >
-            {currentUser.display_name.charAt(0)}
+            🔔
           </button>
+          <div className="header__user-wrapper">
+            <button
+              className="header__action-btn header__user-btn"
+              onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu); }}
+              title={currentUser.display_name}
+            >
+              {currentUser.display_name.charAt(0)}
+            </button>
+            {showUserMenu && (
+              <div className="header__dropdown" onClick={(e) => e.stopPropagation()}>
+                <div className="header__dropdown-name">{currentUser.display_name}</div>
+                <div className="header__dropdown-email">{currentUser.email}</div>
+                <div className="header__dropdown-divider" />
+                {isSupported && (
+                  <button
+                    className="header__dropdown-item"
+                    onClick={async () => {
+                      if (isSubscribed) {
+                        await unsubscribe();
+                      } else {
+                        await subscribe();
+                      }
+                    }}
+                  >
+                    {isSubscribed ? '🔔 Notifications activées' : '🔕 Activer les notifications'}
+                    <span className={`header__dropdown-dot ${isSubscribed ? 'header__dropdown-dot--on' : ''}`} />
+                  </button>
+                )}
+                <button className="header__dropdown-item header__dropdown-item--danger" onClick={signOut}>
+                  🚪 Se déconnecter
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
