@@ -2,9 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAgent } from './hooks/useAgent';
 import { useAuth } from './hooks/useAuth.jsx';
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech';
+import { usePushNotifications } from './hooks/usePushNotifications';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
 import { ComposeCard } from './components/ComposeCard';
+import RdvConfirmList from './components/RdvConfirmList';
 import AgendaPanel from './components/AgendaPanel';
 import MyDayPanel from './components/MyDayPanel';
 import LoginScreen from './components/LoginScreen';
@@ -23,9 +25,30 @@ export default function App() {
   const { speak } = useSpeechSynthesis();
   const [inputText, setInputText] = useState('');
   const [showMyDay, setShowMyDay] = useState(false);
+  const [showRdvConfirm, setShowRdvConfirm] = useState(false);
   const [agendaData, setAgendaData] = useState({ allApts: [], tasks: [] });
   const chatRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Push notifications
+  const { isSubscribed, isSupported, subscribe } = usePushNotifications(currentUser?.id);
+
+  // Auto-subscribe to push notifications when user is logged in
+  useEffect(() => {
+    if (currentUser && isSupported && !isSubscribed) {
+      subscribe();
+    }
+  }, [currentUser, isSupported, isSubscribed]);
+
+  // Check for ?action=rdv-confirm in URL (from push notification click)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'rdv-confirm') {
+      setShowRdvConfirm(true);
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const handleAgendaData = useCallback((data) => setAgendaData(data), []);
 
@@ -156,6 +179,11 @@ export default function App() {
         userCode={currentUser.extrabat_code}
         userName={currentUser.display_name}
       />
+
+      {/* RDV Confirm Overlay */}
+      {showRdvConfirm && (
+        <RdvConfirmList onClose={() => setShowRdvConfirm(false)} />
+      )}
 
       {/* Chat Area */}
       <div className={`chat ${isEmpty ? 'chat--empty' : ''}`} ref={chatRef}>
