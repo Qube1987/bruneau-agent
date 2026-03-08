@@ -31,16 +31,7 @@ export default function App() {
   const inputRef = useRef(null);
 
   // Push notifications
-  const { isSubscribed, isSupported, subscribe, unsubscribe } = usePushNotifications(currentUser?.id);
-  const pushTriedRef = useRef(false);
-
-  // Auto-subscribe to push notifications when user is logged in
-  useEffect(() => {
-    if (currentUser && isSupported && !isSubscribed && !pushTriedRef.current) {
-      pushTriedRef.current = true;
-      subscribe();
-    }
-  }, [currentUser, isSupported, isSubscribed, subscribe]);
+  const { isSubscribed, isSupported, subscribing, subscribe, unsubscribe } = usePushNotifications(currentUser?.id);
 
   // Check for ?action=rdv-confirm in URL (from push notification click)
   useEffect(() => {
@@ -184,6 +175,7 @@ export default function App() {
                 {isSupported && (
                   <button
                     className="header__dropdown-item"
+                    disabled={subscribing}
                     onClick={async () => {
                       if (isSubscribed) {
                         await unsubscribe();
@@ -192,8 +184,12 @@ export default function App() {
                       }
                     }}
                   >
-                    {isSubscribed ? '🔔 Notifications activées' : '🔕 Activer les notifications'}
-                    <span className={`header__dropdown-dot ${isSubscribed ? 'header__dropdown-dot--on' : ''}`} />
+                    {subscribing
+                      ? '⏳ Activation...'
+                      : isSubscribed
+                        ? '🔔 Notifications activées'
+                        : '🔕 Activer les notifications'}
+                    {!subscribing && <span className={`header__dropdown-dot ${isSubscribed ? 'header__dropdown-dot--on' : ''}`} />}
                   </button>
                 )}
                 <button className="header__dropdown-item header__dropdown-item--danger" onClick={signOut}>
