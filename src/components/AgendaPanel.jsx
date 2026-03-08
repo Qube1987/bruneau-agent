@@ -143,8 +143,6 @@ function parseRawApts(rawData, userCode, member) {
                 _start: start,
                 _end: end,
                 _address: extractAddr(apt.lieu) || extractAddr(apt.adresse) || extractAddr(apt.address) || '',
-                _gpsLat: parseFloat(apt.lieu?.gpsLat) || null,
-                _gpsLon: parseFloat(apt.lieu?.gpsLon) || null,
                 _phone: (() => {
                     const p = apt.telephone || apt.phone || '';
                     return typeof p === 'string' ? p : '';

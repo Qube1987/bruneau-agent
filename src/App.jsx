@@ -1,11 +1,9 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAgent } from './hooks/useAgent';
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
 import AgendaPanel from './components/AgendaPanel';
-
-const MyDayMap = lazy(() => import('./components/MyDayMap'));
 
 const SUGGESTIONS = [
   { icon: '🔧', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
@@ -21,7 +19,6 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const chatRef = useRef(null);
   const inputRef = useRef(null);
-  const [showMyDay, setShowMyDay] = useState(false);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -125,9 +122,10 @@ export default function App() {
               🗑️ Nouveau
             </button>
           )}
-          <button className="header__myday-btn" onClick={() => setShowMyDay(true)} title="Ma Journée">
-            🗺️ Ma Journée
-          </button>
+          <div className="header__status">
+            <div className="header__status-dot" />
+            En ligne
+          </div>
         </div>
       </header>
 
@@ -143,7 +141,6 @@ export default function App() {
             <p className="welcome__text">
               Je suis votre assistant vocal. Parlez-moi ou tapez une commande.
             </p>
-
             <div className="welcome__suggestions">
               {SUGGESTIONS.map((s, i) => (
                 <button
@@ -229,13 +226,6 @@ export default function App() {
           </button>
         </div>
       </div>
-
-      {/* My Day Map Overlay */}
-      {showMyDay && (
-        <Suspense fallback={null}>
-          <MyDayMap onClose={() => setShowMyDay(false)} />
-        </Suspense>
-      )}
     </div>
   );
 }
