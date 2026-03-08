@@ -1336,14 +1336,29 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
         // ===== HITL =====
         case "ask_user_confirmation": {
-            let details = {};
-            try { details = JSON.parse(args.details); } catch { details = {}; }
+            let details: any = {};
+            if (typeof args.details === "object" && args.details !== null && !Array.isArray(args.details)) {
+                details = args.details;
+            } else if (typeof args.details === "string") {
+                try { details = JSON.parse(args.details); } catch { details = {}; }
+            }
             return { _hitl: true, type: "confirm", message: args.message, details, pendingAction: args.action_type };
         }
 
         case "ask_user_selection": {
-            let options = [];
-            try { options = JSON.parse(args.options); } catch { options = []; }
+            let options: any[] = [];
+            if (Array.isArray(args.options)) {
+                options = args.options;
+            } else if (typeof args.options === "string") {
+                try { options = JSON.parse(args.options); } catch (e) {
+                    console.error("ask_user_selection: Failed to parse options string:", args.options, e);
+                    options = [];
+                }
+            } else if (typeof args.options === "object" && args.options !== null) {
+                // Gemini might send it as an object with numeric keys
+                options = Object.values(args.options);
+            }
+            console.log("ask_user_selection: parsed options count =", options.length, "raw type =", typeof args.options, "isArray =", Array.isArray(args.options));
             return { _hitl: true, type: "select", message: args.message, options, pendingAction: "select" };
         }
 
