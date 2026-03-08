@@ -69,8 +69,17 @@ export function useAgent() {
         showThinking();
 
         try {
+            // Hint the agent to use search_client for contact info queries
+            let messageToSend = text;
+            const lower = text.toLowerCase();
+            const isContactQuery = /\b(num[ée]ro|t[ée]l[ée]phone|coordonn[ée]es|adresse|mail|email|contact)\b/.test(lower)
+                && /\b(trouve|cherche|donne|quel|c.est quoi)\b/.test(lower);
+            if (isContactQuery) {
+                messageToSend = text + '\n[RAPPEL: utilise search_client pour chercher ce client dans Supabase ET Extrabat]';
+            }
+
             const result = await callAgent({
-                message: text,
+                message: messageToSend,
                 conversation: conversationRef.current,
             });
 
