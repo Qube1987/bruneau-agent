@@ -1352,12 +1352,23 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const recipientName = args.recipient_name || "";
             const smsBody = args.body || "";
 
-            // Search in team members first
-            const { data: teamUsers } = await db.from("users")
-                .select("display_name, phone, email, role")
-                .ilike("display_name", `%${recipientName}%`);
+            // Split recipient name into words for better matching (same as search_client)
+            const smsWords = recipientName.split(/\s+/).filter((w: string) => w.length > 1);
+            const smsSearchTerms = smsWords.length > 0 ? smsWords : [recipientName];
 
-            if (teamUsers && teamUsers.length === 1 && teamUsers[0].phone) {
+            // Search in team members first (try each word)
+            let teamUsers: any[] = [];
+            for (const term of smsSearchTerms) {
+                const { data } = await db.from("users")
+                    .select("display_name, phone, email, role")
+                    .ilike("display_name", `%${term}%`);
+                if (data && data.length > 0) {
+                    teamUsers = data;
+                    break;
+                }
+            }
+
+            if (teamUsers.length === 1 && teamUsers[0].phone) {
                 return {
                     _hitl: true,
                     type: "compose_sms",
@@ -1369,26 +1380,47 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 };
             }
 
-            // Search in clients
+            // Search in clients — build OR conditions for each word
+            const smsOrConditions = smsSearchTerms
+                .map((term: string) => `nom.ilike.%${term}%,prenom.ilike.%${term}%,entreprise.ilike.%${term}%`)
+                .join(",");
+
             const { data: clientResults } = await db.from("clients")
-                .select("nom, prenom, telephone, email, client_type")
-                .or(`nom.ilike.%${recipientName}%,prenom.ilike.%${recipientName}%,entreprise.ilike.%${recipientName}%`)
+                .select("id, nom, prenom, telephone, email, client_type")
+                .or(smsOrConditions)
                 .eq("actif", true)
                 .limit(10);
 
-            // Also search client_contacts for phone numbers
-            const clientsWithPhone = (clientResults || []).filter((c: any) => c.telephone);
+            // Also search client_contacts for additional phone numbers
+            const clientIds = (clientResults || []).map((c: any) => c.id);
+            let contactPhones: Record<string, { phone: string, name: string }> = {};
+            if (clientIds.length > 0) {
+                const { data: contacts } = await db.from("client_contacts")
+                    .select("client_id, telephone, nom, prenom")
+                    .in("client_id", clientIds);
+                for (const contact of (contacts || [])) {
+                    if (contact.telephone && !contactPhones[contact.client_id]) {
+                        contactPhones[contact.client_id] = {
+                            phone: contact.telephone,
+                            name: `${contact.prenom || ""} ${contact.nom || ""}`.trim(),
+                        };
+                    }
+                }
+            }
 
-            // Combine team members (with phone) + clients (with phone)
+            // Combine team members (with phone) + clients (with phone from clients or client_contacts)
             const allCandidates: any[] = [];
             if (teamUsers) {
                 for (const u of teamUsers) {
                     if (u.phone) allCandidates.push({ name: u.display_name, contact: u.phone, role: u.role || "équipe", source: "équipe" });
                 }
             }
-            for (const c of clientsWithPhone) {
-                const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim();
-                allCandidates.push({ name: fullName || c.nom, contact: c.telephone, role: c.client_type || "client", source: "client" });
+            for (const c of (clientResults || [])) {
+                const phone = c.telephone || contactPhones[c.id]?.phone;
+                if (phone) {
+                    const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim();
+                    allCandidates.push({ name: fullName || c.nom, contact: phone, role: c.client_type || "client", source: "client" });
+                }
             }
 
             if (allCandidates.length === 0) {
@@ -1420,12 +1452,23 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const emailSubject = args.subject || "";
             const emailBody = args.body || "";
 
-            // Search in team members first
-            const { data: emailTeamUsers } = await db.from("users")
-                .select("display_name, phone, email, role")
-                .ilike("display_name", `%${emailRecipientName}%`);
+            // Split recipient name into words for better matching
+            const emailWords = emailRecipientName.split(/\s+/).filter((w: string) => w.length > 1);
+            const emailSearchTerms = emailWords.length > 0 ? emailWords : [emailRecipientName];
 
-            if (emailTeamUsers && emailTeamUsers.length === 1 && emailTeamUsers[0].email) {
+            // Search in team members first (try each word)
+            let emailTeamUsers: any[] = [];
+            for (const term of emailSearchTerms) {
+                const { data } = await db.from("users")
+                    .select("display_name, phone, email, role")
+                    .ilike("display_name", `%${term}%`);
+                if (data && data.length > 0) {
+                    emailTeamUsers = data;
+                    break;
+                }
+            }
+
+            if (emailTeamUsers.length === 1 && emailTeamUsers[0].email) {
                 return {
                     _hitl: true,
                     type: "compose_email",
@@ -1438,15 +1481,33 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 };
             }
 
-            // Search in clients
+            // Search in clients — build OR conditions for each word
+            const emailOrConditions = emailSearchTerms
+                .map((term: string) => `nom.ilike.%${term}%,prenom.ilike.%${term}%,entreprise.ilike.%${term}%`)
+                .join(",");
+
             const { data: emailClientResults } = await db.from("clients")
-                .select("nom, prenom, email, telephone, client_type")
-                .or(`nom.ilike.%${emailRecipientName}%,prenom.ilike.%${emailRecipientName}%,entreprise.ilike.%${emailRecipientName}%`)
+                .select("id, nom, prenom, email, telephone, client_type")
+                .or(emailOrConditions)
                 .eq("actif", true)
                 .limit(10);
 
-            // Also check client_contacts for emails
-            const clientsWithEmail = (emailClientResults || []).filter((c: any) => c.email);
+            // Also search client_contacts for additional emails
+            const emailClientIds = (emailClientResults || []).map((c: any) => c.id);
+            let contactEmails: Record<string, { email: string, name: string }> = {};
+            if (emailClientIds.length > 0) {
+                const { data: contacts } = await db.from("client_contacts")
+                    .select("client_id, email, nom, prenom")
+                    .in("client_id", emailClientIds);
+                for (const contact of (contacts || [])) {
+                    if (contact.email && !contactEmails[contact.client_id]) {
+                        contactEmails[contact.client_id] = {
+                            email: contact.email,
+                            name: `${contact.prenom || ""} ${contact.nom || ""}`.trim(),
+                        };
+                    }
+                }
+            }
 
             // Combine
             const emailCandidates: any[] = [];
@@ -1455,9 +1516,12 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                     if (u.email) emailCandidates.push({ name: u.display_name, contact: u.email, role: u.role || "équipe", source: "équipe" });
                 }
             }
-            for (const c of clientsWithEmail) {
-                const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim();
-                emailCandidates.push({ name: fullName || c.nom, contact: c.email, role: c.client_type || "client", source: "client" });
+            for (const c of (emailClientResults || [])) {
+                const email = c.email || contactEmails[c.id]?.email;
+                if (email) {
+                    const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim();
+                    emailCandidates.push({ name: fullName || c.nom, contact: email, role: c.client_type || "client", source: "client" });
+                }
             }
 
             if (emailCandidates.length === 0) {
