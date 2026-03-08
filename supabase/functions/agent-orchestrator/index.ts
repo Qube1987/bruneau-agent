@@ -111,6 +111,8 @@ RECHERCHE DE CLIENTS :
 - Les clients "extrabat" ont un id au format "extrabat-XXXX" — Ce n'est PAS un UUID valide ! Tu ne peux PAS l'utiliser directement dans client_id pour create_sav_request ou create_opportunity
 - Si l'utilisateur choisit un client "extrabat", précise-lui que ce client n'est pas encore dans la base locale et que le SAV/opportunité ne peut pas être lié automatiquement. Propose de créer le SAV avec les infos du client (nom, téléphone, adresse) mais SANS client_id (passe null)
 - Quand tu proposes la liste des clients à l'utilisateur via ask_user_selection, indique la source. Exemple : "Pages Jean (Supabase)" ou "Pages Jean (Extrabat)"
+- IMPORTANT : Quand l'utilisateur demande les INFOS ou la FICHE d'un client spécifique (pas juste une recherche), utilise get_client_details avec le client_id pour obtenir la fiche complète (contacts, sites/adresses, contrats maintenance, SAV, opportunités)
+- get_client_details retourne TOUTES les données liées au client. Présente-les de façon structurée : d'abord les infos générales, puis les contacts, les sites/adresses, les contrats de maintenance, les SAV, etc.
 
 FORMAT DES RÉPONSES POUR LES LISTES :
 - Quand tu retournes une liste, formate-la avec UN ÉLÉMENT PAR LIGNE en utilisant des tirets (-) ou des puces
@@ -141,9 +143,11 @@ FORMAT DES RÉPONSES POUR LES LISTES :
 
 STRUCTURE DE LA BASE :
 - Table "clients" : clients unifiés (id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif)
-- Table "sav_requests" : demandes SAV (id, client_id, client_name, phone, address, system_type, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority, assigned_user_id, requested_at, resolved_at, billing_status)
+- Table "client_contacts" : contacts d'un client (id, client_id, nom, prenom, telephone, email, fonction, principal). Un client professionnel peut avoir PLUSIEURS contacts.
+- Table "client_sites" : sites/bâtiments d'un client (id, client_id, label, adresse, code_postal, ville, system_type, system_brand, system_model, principal). Un client peut avoir PLUSIEURS sites à des adresses différentes.
+- Table "sav_requests" : demandes SAV (id, client_id, site_id, client_name, site, phone, address, system_type, system_brand, problem_desc, status[nouvelle/en_cours/terminee/archivee], urgent, priority, assigned_user_id, requested_at, resolved_at, billing_status)
 - Table "opportunites" : opportunités commerciales (id, client_id, titre, description, statut[a-contacter/contacte/recueil-besoin/redaction-devis/devis-transmis/relance-1/relance-2/relance-3], suivi_par, montant_estime, statut_final[gagne/perdu/standby], archive, prioritaire, date_creation)
-- Table "maintenance_contracts" : contrats de maintenance (id, client_id, client_name, system_type, system_brand, status[actif/inactif], address, annual_amount, billing_mode, invoice_sent, invoice_paid)
+- Table "maintenance_contracts" : contrats de maintenance (id, client_id, site_id, client_name, site, system_type, system_brand, status[actif/inactif], address, city_derived, annual_amount, billing_mode, invoice_sent, invoice_paid)
 - Table "stock_products" : stock (id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
 - Table "stock_movements" : historique des mouvements stock (id, stock_product_id, movement_type[entrée/sortie/ajustement/transfert], location[depot/paul_truck/quentin_truck], quantity_change, comment, created_at)
 - Table "devis" : devis (id, client_id, devis_number, status[brouillon/envoye/accepte/refuse], titre_affaire, totaux)
@@ -226,6 +230,17 @@ const TOOLS = [
             type: "OBJECT",
             properties: {
                 client_id: { type: "STRING", description: "UUID du client" },
+            },
+            required: ["client_id"],
+        },
+    },
+    {
+        name: "get_client_details",
+        description: "Obtenir la fiche COMPLÈTE d'un client : infos de base, contacts, sites/adresses, contrats de maintenance, SAV, opportunités. Utiliser quand l'utilisateur demande les infos, la fiche, ou les détails d'un client spécifique.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                client_id: { type: "STRING", description: "UUID du client Supabase" },
             },
             required: ["client_id"],
         },
@@ -449,21 +464,38 @@ async function searchExtrabat(query: string): Promise<any[]> {
     const clients = Array.isArray(data) ? data : (data.data || data.clients || []);
 
     return clients.map((client: any) => {
-        let telephone = "";
+        // Collect ALL phones
+        const telephones: any[] = [];
         if (client.telephones?.length > 0) {
-            telephone = client.telephones[0].number || client.telephones[0].numero || "";
+            for (const tel of client.telephones) {
+                const num = tel.number || tel.numero || "";
+                if (num) telephones.push({ numero: num, type: tel.type?.libelle || tel.typeTelephone?.libelle || "" });
+            }
         }
-        let adresse = "", code_postal = "", ville = "";
+        const telephone = telephones.length > 0 ? telephones[0].numero : "";
+
+        // Collect ALL addresses
+        const adresses: any[] = [];
         if (client.adresses?.length > 0) {
-            const addr = client.adresses[0];
-            adresse = addr.description || addr.adresse || addr.rue || "";
-            code_postal = addr.codePostal || addr.code_postal || "";
-            ville = addr.ville || "";
+            for (const addr of client.adresses) {
+                adresses.push({
+                    adresse: addr.description || addr.adresse || addr.rue || "",
+                    code_postal: addr.codePostal || addr.code_postal || "",
+                    ville: addr.ville || "",
+                    type: addr.type?.libelle || addr.typeAdresse?.libelle || "",
+                });
+            }
         }
+        const adresse = adresses.length > 0 ? adresses[0].adresse : "";
+        const code_postal = adresses.length > 0 ? adresses[0].code_postal : "";
+        const ville = adresses.length > 0 ? adresses[0].ville : "";
+
         return {
             id: `extrabat-${client.id}`, extrabat_id: client.id,
             nom: client.nom || "", prenom: client.prenom || "",
             email: client.email || "", telephone, adresse, code_postal, ville,
+            telephones: telephones.length > 1 ? telephones : undefined,
+            adresses: adresses.length > 1 ? adresses : undefined,
             civilite: client.civilite?.libelle || "",
             entreprise: client.raisonSociale || "",
             client_type: client.civilite?.professionnel ? "professionnel" : "particulier",
@@ -561,7 +593,29 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 .order("updated_at", { ascending: false }).limit(10);
 
             if (error) return { error: error.message };
-            const supabaseClients = (data || []).map((c: any) => ({ ...c, source: "supabase" }));
+
+            // Enrich with contacts and sites count for Supabase clients
+            const clientIds = (data || []).map((c: any) => c.id);
+            let contactsMap: Record<string, number> = {};
+            let sitesMap: Record<string, number> = {};
+            let contractsMap: Record<string, number> = {};
+            if (clientIds.length > 0) {
+                const [contactsRes, sitesRes, contractsRes] = await Promise.all([
+                    db.from("client_contacts").select("client_id").in("client_id", clientIds),
+                    db.from("client_sites").select("client_id").in("client_id", clientIds),
+                    db.from("maintenance_contracts").select("client_id").in("client_id", clientIds).eq("status", "actif"),
+                ]);
+                for (const c of contactsRes.data || []) contactsMap[c.client_id] = (contactsMap[c.client_id] || 0) + 1;
+                for (const s of sitesRes.data || []) sitesMap[s.client_id] = (sitesMap[s.client_id] || 0) + 1;
+                for (const m of contractsRes.data || []) contractsMap[m.client_id] = (contractsMap[m.client_id] || 0) + 1;
+            }
+
+            const supabaseClients = (data || []).map((c: any) => ({
+                ...c, source: "supabase",
+                contacts_count: contactsMap[c.id] || 0,
+                sites_count: sitesMap[c.id] || 0,
+                maintenance_contracts_count: contractsMap[c.id] || 0,
+            }));
 
             if (supabaseClients.length < 3) {
                 try {
@@ -682,6 +736,46 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 sav_requests: savRes.data || [], sav_count: (savRes.data || []).length,
                 opportunites: oppRes.data || [], opp_count: (oppRes.data || []).length,
                 maintenance_contracts: maintRes.data || [], maint_count: (maintRes.data || []).length,
+            };
+        }
+
+        // ===== GET CLIENT DETAILS (FULL) =====
+        case "get_client_details": {
+            // Fetch client base info
+            const { data: clientData, error: clientError } = await db.from("clients")
+                .select("id, nom, prenom, email, telephone, adresse, code_postal, ville, civilite, entreprise, client_type, source, actif, extrabat_id, siret, activite, origine_contact, suivi_par")
+                .eq("id", args.client_id)
+                .single();
+            if (clientError) return { error: clientError.message };
+            if (!clientData) return { error: "Client non trouvé" };
+
+            // Fetch all related data in parallel
+            const [contactsRes, sitesRes, savRes2, oppRes2, maintRes2, devisRes, callNotesRes] = await Promise.all([
+                db.from("client_contacts").select("id, nom, prenom, telephone, email, fonction, principal").eq("client_id", args.client_id).order("principal", { ascending: false }),
+                db.from("client_sites").select("id, label, adresse, code_postal, ville, system_type, system_brand, system_model, battery_installation_year, principal").eq("client_id", args.client_id).order("principal", { ascending: false }),
+                db.from("sav_requests").select("id, client_name, site, address, system_type, system_brand, problem_desc, status, urgent, requested_at, resolved_at").eq("client_id", args.client_id).order("requested_at", { ascending: false }).limit(15),
+                db.from("opportunites").select("id, titre, description, statut, suivi_par, montant_estime, date_creation, statut_final").eq("client_id", args.client_id).order("date_creation", { ascending: false }).limit(10),
+                db.from("maintenance_contracts").select("id, client_name, site, address, city_derived, system_type, system_brand, system_model, status, annual_amount, billing_mode, invoice_sent, invoice_paid, battery_installation_year").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(20),
+                db.from("devis").select("id, devis_number, titre_affaire, status, totaux, created_at").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(10),
+                db.from("call_notes").select("id, call_subject, notes, is_completed, priority, created_at").eq("client_id", args.client_id).order("created_at", { ascending: false }).limit(10),
+            ]);
+
+            return {
+                client: { ...clientData, source: "supabase" },
+                contacts: contactsRes.data || [],
+                contacts_count: (contactsRes.data || []).length,
+                sites: sitesRes.data || [],
+                sites_count: (sitesRes.data || []).length,
+                sav_requests: savRes2.data || [],
+                sav_count: (savRes2.data || []).length,
+                opportunites: oppRes2.data || [],
+                opp_count: (oppRes2.data || []).length,
+                maintenance_contracts: maintRes2.data || [],
+                maint_count: (maintRes2.data || []).length,
+                devis: devisRes.data || [],
+                devis_count: (devisRes.data || []).length,
+                call_notes: callNotesRes.data || [],
+                call_notes_count: (callNotesRes.data || []).length,
             };
         }
 
