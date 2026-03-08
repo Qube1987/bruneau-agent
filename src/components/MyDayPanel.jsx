@@ -1,6 +1,34 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
+
+function AddressLink({ address }) {
+    if (!address) return null;
+    const geoUrl = `geo:0,0?q=${encodeURIComponent(address)}`;
+    return (
+        <a href={geoUrl} className="linkable linkable--address" onClick={e => e.stopPropagation()}>
+            📍 {address}
+        </a>
+    );
+}
+
+function PhoneLink({ phone, senderName }) {
+    if (!phone) return null;
+    const cleaned = phone.replace(/[\s.]/g, '');
+    const smsText = `Bonjour, je suis en route et serai chez vous dans XX min.\nCordialement,\n${senderName || 'Bruneau Protection'}`;
+    const smsBody = encodeURIComponent(smsText);
+    return (
+        <span className="linkable-group" onClick={e => e.stopPropagation()}>
+            <a href={`tel:${cleaned}`} className="linkable linkable--phone">
+                📞 {phone}
+            </a>
+            <a href={`sms:${cleaned}?body=${smsBody}`} className="linkable linkable--sms" title="Envoyer un SMS">
+                ✉️
+            </a>
+        </span>
+    );
+}
+
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function formatTime(date) {
@@ -113,13 +141,12 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
                             <div className="myday-next__card" style={{ borderLeftColor: upcomingApt._color }}>
                                 <div className="myday-next__time">{formatTime(upcomingApt._start)} → {formatTime(upcomingApt._end)}</div>
                                 <div className="myday-next__title">{upcomingApt._clientName || upcomingApt._objet}</div>
-                                {upcomingApt._address && <div className="myday-next__address">📍 {upcomingApt._address}</div>}
                                 {upcomingApt._clientName && upcomingApt._objet && (
                                     <div className="myday-next__objet">{upcomingApt._objet}</div>
                                 )}
-                                <div className="myday-next__user" style={{ color: upcomingApt._color }}>
-                                    <span className="myday-next__dot" style={{ background: upcomingApt._color }} />
-                                    {upcomingApt._userName}
+                                <div className="myday-next__links">
+                                    <AddressLink address={upcomingApt._address} />
+                                    <PhoneLink phone={upcomingApt._phone} senderName={userName} />
                                 </div>
                             </div>
                         </div>
@@ -147,7 +174,10 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
                                                 {apt._clientName && apt._objet && (
                                                     <div className="myday-apt__desc">{apt._objet}</div>
                                                 )}
-                                                <div className="myday-apt__user" style={{ color: apt._color }}>{apt._userName}</div>
+                                                <div className="myday-apt__links">
+                                                    <AddressLink address={apt._address} />
+                                                    <PhoneLink phone={apt._phone} senderName={userName} />
+                                                </div>
                                             </div>
                                         </div>
                                     );

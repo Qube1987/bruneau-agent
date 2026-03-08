@@ -2308,6 +2308,26 @@ body {
   margin-top: 2px;
 }
 
+.myday-next__links,
+.myday-apt__links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.myday-next__links .linkable,
+.myday-apt__links .linkable {
+  font-size: 0.75rem;
+}
+
+.myday-next__links .linkable-group,
+.myday-apt__links .linkable-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Tasks in MyDay */
 .myday-task {
   display: flex;
