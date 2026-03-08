@@ -153,6 +153,17 @@ STRUCTURE DE LA BASE :
 - Table "devis" : devis (id, client_id, devis_number, status[brouillon/envoye/accepte/refuse], titre_affaire, totaux)
 - Table "call_notes" : notes d'appels (id, client_name, call_subject, notes, is_completed, priority)
 
+ENVOI DE SMS ET EMAILS :
+- Quand l'utilisateur demande d'envoyer un SMS ou un email, utilise compose_sms ou compose_email
+- Ces outils cherchent AUTOMATIQUEMENT le destinataire dans les clients ET les membres de l'équipe (table users)
+- Tu dois fournir : le nom du destinataire (recipient_name), le message (body), et pour les emails l'objet (subject)
+- L'outil va chercher le numéro de téléphone ou l'email du destinataire automatiquement
+- Si plusieurs destinataires correspondent, l'outil retournera une erreur avec les options — utilise alors ask_user_selection
+- Le message sera pré-rempli et l'utilisateur pourra le modifier avant envoi dans l'appli SMS/Mail native de son téléphone
+- Les membres de l'équipe : Quentin (quentin@bruneau27.com, +33684516668), Paul (paul@bruneau27.com, +33681082597), Cindy (cindy@bruneau27.com, +33601420609), Téo (teo@bruneau27.com)
+- Signe toujours les messages professionnels avec "Cordialement,\nQuentin Bruneau\nSté Bruneau Protection"
+- Pour les SMS clients, utilise un ton professionnel et concis
+
 Types de systèmes : ssi (détection incendie), type4 (alarme incendie type 4), intrusion (alarme anti-intrusion), video (vidéosurveillance), controle_acces, interphone, portail, autre.`;
 
 // --- Tool definitions ---
@@ -406,6 +417,33 @@ const TOOLS = [
                 statut_final: { type: "STRING", description: "Statut final (optionnel) : gagne, perdu, standby" },
             },
             required: ["opportunity_id"],
+        },
+    },
+
+    // ===== COMPOSE SMS / EMAIL =====
+    {
+        name: "compose_sms",
+        description: "Préparer un SMS à envoyer via l'application SMS native du téléphone. Cherche automatiquement le destinataire dans les clients ET les membres de l'équipe. L'utilisateur pourra modifier le message avant envoi.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                recipient_name: { type: "STRING", description: "Nom du destinataire (client ou membre de l'équipe)" },
+                body: { type: "STRING", description: "Contenu du SMS" },
+            },
+            required: ["recipient_name", "body"],
+        },
+    },
+    {
+        name: "compose_email",
+        description: "Préparer un email à envoyer via l'application mail native du téléphone. Cherche automatiquement le destinataire dans les clients ET les membres de l'équipe. L'utilisateur pourra modifier le message avant envoi.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                recipient_name: { type: "STRING", description: "Nom du destinataire (client ou membre de l'équipe)" },
+                subject: { type: "STRING", description: "Objet de l'email" },
+                body: { type: "STRING", description: "Contenu de l'email" },
+            },
+            required: ["recipient_name", "subject", "body"],
         },
     },
 
@@ -1305,6 +1343,143 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             let options = [];
             try { options = JSON.parse(args.options); } catch { options = []; }
             return { _hitl: true, type: "select", message: args.message, options, pendingAction: "select" };
+        }
+
+        // ===== COMPOSE SMS =====
+        case "compose_sms": {
+            const recipientName = args.recipient_name || "";
+            const smsBody = args.body || "";
+
+            // Search in team members first
+            const { data: teamUsers } = await db.from("users")
+                .select("display_name, phone, email, role")
+                .ilike("display_name", `%${recipientName}%`);
+
+            if (teamUsers && teamUsers.length === 1 && teamUsers[0].phone) {
+                return {
+                    _hitl: true,
+                    type: "compose_sms",
+                    message: `SMS prêt pour ${teamUsers[0].display_name}`,
+                    recipientName: teamUsers[0].display_name,
+                    recipientContact: teamUsers[0].phone,
+                    recipientRole: teamUsers[0].role || "équipe",
+                    body: smsBody,
+                };
+            }
+
+            // Search in clients
+            const { data: clientResults } = await db.from("clients")
+                .select("nom, prenom, telephone, email, client_type")
+                .or(`nom.ilike.%${recipientName}%,prenom.ilike.%${recipientName}%,entreprise.ilike.%${recipientName}%`)
+                .eq("actif", true)
+                .limit(10);
+
+            // Also search client_contacts for phone numbers
+            const clientsWithPhone = (clientResults || []).filter((c: any) => c.telephone);
+
+            // Combine team members (with phone) + clients (with phone)
+            const allCandidates: any[] = [];
+            if (teamUsers) {
+                for (const u of teamUsers) {
+                    if (u.phone) allCandidates.push({ name: u.display_name, contact: u.phone, role: u.role || "équipe", source: "équipe" });
+                }
+            }
+            for (const c of clientsWithPhone) {
+                const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim();
+                allCandidates.push({ name: fullName || c.nom, contact: c.telephone, role: c.client_type || "client", source: "client" });
+            }
+
+            if (allCandidates.length === 0) {
+                return { error: `Aucun destinataire trouvé avec un numéro de téléphone pour "${recipientName}". Vérifiez le nom ou ajoutez un numéro de téléphone.` };
+            }
+
+            if (allCandidates.length === 1) {
+                return {
+                    _hitl: true,
+                    type: "compose_sms",
+                    message: `SMS prêt pour ${allCandidates[0].name}`,
+                    recipientName: allCandidates[0].name,
+                    recipientContact: allCandidates[0].contact,
+                    recipientRole: allCandidates[0].source,
+                    body: smsBody,
+                };
+            }
+
+            // Multiple candidates — ask user to select
+            return {
+                error: `Plusieurs destinataires trouvés pour "${recipientName}" : ${allCandidates.map((c: any) => `${c.name} (${c.source}: ${c.contact})`).join(", ")}. Utilise ask_user_selection pour clarifier.`,
+                candidates: allCandidates,
+            };
+        }
+
+        // ===== COMPOSE EMAIL =====
+        case "compose_email": {
+            const emailRecipientName = args.recipient_name || "";
+            const emailSubject = args.subject || "";
+            const emailBody = args.body || "";
+
+            // Search in team members first
+            const { data: emailTeamUsers } = await db.from("users")
+                .select("display_name, phone, email, role")
+                .ilike("display_name", `%${emailRecipientName}%`);
+
+            if (emailTeamUsers && emailTeamUsers.length === 1 && emailTeamUsers[0].email) {
+                return {
+                    _hitl: true,
+                    type: "compose_email",
+                    message: `Email prêt pour ${emailTeamUsers[0].display_name}`,
+                    recipientName: emailTeamUsers[0].display_name,
+                    recipientContact: emailTeamUsers[0].email,
+                    recipientRole: emailTeamUsers[0].role || "équipe",
+                    subject: emailSubject,
+                    body: emailBody,
+                };
+            }
+
+            // Search in clients
+            const { data: emailClientResults } = await db.from("clients")
+                .select("nom, prenom, email, telephone, client_type")
+                .or(`nom.ilike.%${emailRecipientName}%,prenom.ilike.%${emailRecipientName}%,entreprise.ilike.%${emailRecipientName}%`)
+                .eq("actif", true)
+                .limit(10);
+
+            // Also check client_contacts for emails
+            const clientsWithEmail = (emailClientResults || []).filter((c: any) => c.email);
+
+            // Combine
+            const emailCandidates: any[] = [];
+            if (emailTeamUsers) {
+                for (const u of emailTeamUsers) {
+                    if (u.email) emailCandidates.push({ name: u.display_name, contact: u.email, role: u.role || "équipe", source: "équipe" });
+                }
+            }
+            for (const c of clientsWithEmail) {
+                const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim();
+                emailCandidates.push({ name: fullName || c.nom, contact: c.email, role: c.client_type || "client", source: "client" });
+            }
+
+            if (emailCandidates.length === 0) {
+                return { error: `Aucun destinataire trouvé avec une adresse email pour "${emailRecipientName}". Vérifiez le nom ou ajoutez une adresse email.` };
+            }
+
+            if (emailCandidates.length === 1) {
+                return {
+                    _hitl: true,
+                    type: "compose_email",
+                    message: `Email prêt pour ${emailCandidates[0].name}`,
+                    recipientName: emailCandidates[0].name,
+                    recipientContact: emailCandidates[0].contact,
+                    recipientRole: emailCandidates[0].source,
+                    subject: emailSubject,
+                    body: emailBody,
+                };
+            }
+
+            // Multiple candidates — ask user to select
+            return {
+                error: `Plusieurs destinataires trouvés pour "${emailRecipientName}" : ${emailCandidates.map((c: any) => `${c.name} (${c.source}: ${c.contact})`).join(", ")}. Utilise ask_user_selection pour clarifier.`,
+                candidates: emailCandidates,
+            };
         }
 
         default:

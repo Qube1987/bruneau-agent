@@ -295,6 +295,22 @@ export function useAgent() {
                     id: Date.now().toString(),
                 };
                 addMessage(agentMsg);
+            } else if (result.type === 'compose_sms' || result.type === 'compose_email') {
+                // Compose SMS or Email card
+                const agentMsg = {
+                    role: 'agent',
+                    type: result.type,
+                    content: result.message || '',
+                    composeType: result.type === 'compose_sms' ? 'sms' : 'email',
+                    recipientName: result.recipientName || '',
+                    recipientContact: result.recipientContact || '',
+                    recipientRole: result.recipientRole || '',
+                    subject: result.subject || '',
+                    body: result.body || '',
+                    id: Date.now().toString(),
+                };
+                addMessage(agentMsg);
+                conversationRef.current.push({ role: 'assistant', content: result.message || `${result.type === 'compose_sms' ? 'SMS' : 'Email'} préparé pour ${result.recipientName}` });
             } else {
                 // Normal text response
                 const agentMsg = {
@@ -372,6 +388,19 @@ export function useAgent() {
                     role: 'agent',
                     type: 'error',
                     content: result.message,
+                    id: Date.now().toString(),
+                });
+            } else if (result.type === 'compose_sms' || result.type === 'compose_email') {
+                addMessage({
+                    role: 'agent',
+                    type: result.type,
+                    content: result.message || '',
+                    composeType: result.type === 'compose_sms' ? 'sms' : 'email',
+                    recipientName: result.recipientName || '',
+                    recipientContact: result.recipientContact || '',
+                    recipientRole: result.recipientRole || '',
+                    subject: result.subject || '',
+                    body: result.body || '',
                     id: Date.now().toString(),
                 });
             } else {

@@ -4,6 +4,7 @@ import { useAuth } from './hooks/useAuth.jsx';
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
+import { ComposeCard } from './components/ComposeCard';
 import AgendaPanel from './components/AgendaPanel';
 import MyDayPanel from './components/MyDayPanel';
 import LoginScreen from './components/LoginScreen';
@@ -202,6 +203,9 @@ export default function App() {
                   disabled={isProcessing}
                 />
               );
+            }
+            if (msg.type === 'compose_sms' || msg.type === 'compose_email') {
+              return <ComposeCard key={msg.id} message={msg} />;
             }
             if (msg.type === 'success' || msg.type === 'error') {
               return <StatusMessage key={msg.id} message={msg} />;

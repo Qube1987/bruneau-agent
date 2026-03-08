@@ -614,6 +614,215 @@ body {
   color: var(--danger);
 }
 
+/* ===== Compose Card (SMS / Email) ===== */
+.compose-card {
+  background: var(--bg-glass);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  animation: fadeInUp 0.4s ease;
+  align-self: flex-start;
+  max-width: 90%;
+  overflow: hidden;
+}
+
+.compose-card--sms {
+  border-color: rgba(0, 206, 201, 0.35);
+  background: linear-gradient(135deg, rgba(0, 206, 201, 0.06), rgba(0, 206, 201, 0.02));
+}
+
+.compose-card--email {
+  border-color: rgba(108, 92, 231, 0.35);
+  background: linear-gradient(135deg, rgba(108, 92, 231, 0.06), rgba(108, 92, 231, 0.02));
+}
+
+.compose-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.compose-card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.compose-card__icon--sms {
+  background: rgba(0, 206, 201, 0.2);
+}
+
+.compose-card__icon--email {
+  background: rgba(108, 92, 231, 0.2);
+}
+
+.compose-card__header-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.compose-card__title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compose-card__subtitle {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.compose-card__recipient {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-md);
+  font-size: var(--font-sm);
+}
+
+.compose-card__recipient-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.compose-card__recipient-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.compose-card__recipient-role {
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
+
+.compose-card__recipient-contact {
+  color: var(--accent-light);
+  font-size: var(--font-xs);
+}
+
+.compose-card__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-sm);
+}
+
+.compose-card__field-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: var(--font-sm);
+  flex-shrink: 0;
+}
+
+.compose-card__field-value {
+  color: var(--text-primary);
+}
+
+.compose-card__input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.compose-card__input:focus {
+  border-color: var(--accent);
+}
+
+.compose-card__body {
+  margin-bottom: var(--space-md);
+}
+
+.compose-card__body .compose-card__field-label {
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.compose-card__body-preview {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.compose-card__textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color var(--transition-fast);
+}
+
+.compose-card__textarea:focus {
+  border-color: var(--accent);
+}
+
+.compose-card__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.btn--sms {
+  background: linear-gradient(135deg, var(--success), #00b894);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+.btn--sms:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn--email {
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: white;
+  font-weight: 600;
+}
+
+.btn--email:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.compose-card__sent-notice {
+  margin-top: var(--space-sm);
+  font-size: var(--font-xs);
+  color: var(--success);
+  text-align: center;
+  animation: fadeInUp 0.3s ease;
+}
+
 /* ===== Input Area ===== */
 .input-area {
   padding: var(--space-md) var(--space-lg);
