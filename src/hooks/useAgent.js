@@ -31,20 +31,9 @@ export function useAgent() {
 
     const callAgent = useCallback(async (payload) => {
         try {
-            // Get the current session token — try getSession first, then refresh if needed
-            let token = null;
+            // Use session token if available, otherwise anon key (both are valid Supabase JWTs)
             const { data: { session } } = await supabase.auth.getSession();
-            token = session?.access_token;
-
-            // If no session found, try refreshing (handles expired tokens)
-            if (!token) {
-                const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-                token = refreshed?.access_token;
-            }
-
-            if (!token) {
-                throw new Error('Session expirée. Veuillez vous reconnecter.');
-            }
+            const token = session?.access_token || SUPABASE_ANON;
 
             const response = await fetch(AGENT_FUNCTION_URL, {
                 method: 'POST',
