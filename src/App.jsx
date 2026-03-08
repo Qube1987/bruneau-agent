@@ -32,13 +32,15 @@ export default function App() {
 
   // Push notifications
   const { isSubscribed, isSupported, subscribe } = usePushNotifications(currentUser?.id);
+  const pushTriedRef = useRef(false);
 
   // Auto-subscribe to push notifications when user is logged in
   useEffect(() => {
-    if (currentUser && isSupported && !isSubscribed) {
+    if (currentUser && isSupported && !isSubscribed && !pushTriedRef.current) {
+      pushTriedRef.current = true;
       subscribe();
     }
-  }, [currentUser, isSupported, isSubscribed]);
+  }, [currentUser, isSupported, isSubscribed, subscribe]);
 
   // Check for ?action=rdv-confirm in URL (from push notification click)
   useEffect(() => {
