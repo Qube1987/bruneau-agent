@@ -72,10 +72,11 @@ export function useAgent() {
             // Hint the agent to use search_client for contact info queries
             let messageToSend = text;
             const lower = text.toLowerCase();
-            const isContactQuery = /\b(num[ée]ro|t[ée]l[ée]phone|coordonn[ée]es|adresse|mail|email|contact)\b/.test(lower)
-                && /\b(trouve|cherche|donne|quel|c.est quoi)\b/.test(lower);
-            if (isContactQuery) {
-                messageToSend = text + '\n[RAPPEL: utilise search_client pour chercher ce client dans Supabase ET Extrabat]';
+            const isContactQuery = /\b(num[ée]ro|t[ée]l[ée]phone|coordonn[ée]es|adresse|mail|email|contact|infos?)\b/.test(lower)
+                || /\b(qui est|connais|trouv)\b/.test(lower);
+            const hasName = /\b(de |du |d')\s*[A-ZÀ-Ü]/i.test(text);
+            if (isContactQuery && hasName) {
+                messageToSend = text + '\n\n[INSTRUCTION SYSTÈME OBLIGATOIRE : Tu DOIS appeler l\'outil search_client avec le nom mentionné AVANT de répondre. Ne réponds JAMAIS sans avoir fait un function call search_client. C\'est OBLIGATOIRE.]';
             }
 
             const result = await callAgent({
