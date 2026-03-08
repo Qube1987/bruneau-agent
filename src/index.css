@@ -619,11 +619,10 @@ body {
   background: var(--bg-glass);
   border: 1px solid var(--border-accent);
   border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  padding: var(--space-md);
   animation: fadeInUp 0.4s ease;
   align-self: flex-start;
   max-width: 90%;
-  overflow: hidden;
 }
 
 .compose-card--sms {
@@ -640,7 +639,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .compose-card__icon {
@@ -682,11 +681,11 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: var(--space-sm) var(--space-md);
+  gap: 4px;
+  padding: var(--space-xs) var(--space-sm);
   background: rgba(255, 255, 255, 0.03);
   border-radius: var(--radius-sm);
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
   font-size: var(--font-sm);
 }
 
@@ -747,7 +746,7 @@ body {
 }
 
 .compose-card__body {
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .compose-card__body .compose-card__field-label {
@@ -759,12 +758,12 @@ body {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   font-size: var(--font-sm);
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--text-primary);
   white-space: pre-wrap;
-  max-height: 40vh;
+  max-height: 150px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -774,15 +773,15 @@ body {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   color: var(--text-primary);
   font-family: var(--font-family);
   font-size: var(--font-sm);
-  line-height: 1.6;
+  line-height: 1.5;
   outline: none;
   resize: vertical;
-  min-height: 100px;
-  max-height: 40vh;
+  min-height: 80px;
+  max-height: 150px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   transition: border-color var(--transition-fast);
