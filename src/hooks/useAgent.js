@@ -31,14 +31,26 @@ export function useAgent() {
 
     const callAgent = useCallback(async (payload) => {
         try {
+            // Get the current session token — try getSession first, then refresh if needed
+            let token = null;
             const { data: { session } } = await supabase.auth.getSession();
-            const token = session?.access_token;
+            token = session?.access_token;
+
+            // If no session found, try refreshing (handles expired tokens)
+            if (!token) {
+                const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+                token = refreshed?.access_token;
+            }
+
+            if (!token) {
+                throw new Error('Session expirée. Veuillez vous reconnecter.');
+            }
 
             const response = await fetch(AGENT_FUNCTION_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token || SUPABASE_ANON}`,
+                    'Authorization': `Bearer ${token}`,
                     'apikey': SUPABASE_ANON,
                 },
                 body: JSON.stringify(payload),
