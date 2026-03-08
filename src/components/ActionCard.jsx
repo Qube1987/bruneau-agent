@@ -1,5 +1,21 @@
 import { useState } from 'react';
 
+/** Safely convert any value to a renderable string (handles nested objects like addresses). */
+function safeString(val) {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (typeof val === 'object') {
+        // Address-like object
+        if (val.description || val.codePostal || val.ville) {
+            return [val.description, val.codePostal, val.ville].filter(Boolean).join(', ');
+        }
+        // Generic object — show a readable summary
+        try { return JSON.stringify(val); } catch { return '[objet]'; }
+    }
+    return String(val);
+}
+
 export function ConfirmationCard({ message, onRespond, disabled }) {
     const [responded, setResponded] = useState(false);
 
@@ -29,7 +45,7 @@ export function ConfirmationCard({ message, onRespond, disabled }) {
                         {Object.entries(message.details).map(([key, value]) => (
                             <div className="action-card__detail" key={key}>
                                 <span className="action-card__detail-label">{key}</span>
-                                <span className="action-card__detail-value">{String(value)}</span>
+                                <span className="action-card__detail-value">{safeString(value)}</span>
                             </div>
                         ))}
                     </div>
@@ -90,8 +106,10 @@ export function SelectionCard({ message, onRespond, disabled }) {
 
             <div className="action-card__options">
                 {message.options.map((option, index) => {
-                    const label = option.label || option.name || option;
-                    const subtitle = option.subtitle || option.address || option.detail || '';
+                    const rawLabel = option.label || option.name || option;
+                    const label = safeString(rawLabel);
+                    const rawSubtitle = option.subtitle || option.address || option.detail || '';
+                    const subtitle = safeString(rawSubtitle);
                     return (
                         <button
                             key={index}
@@ -99,7 +117,7 @@ export function SelectionCard({ message, onRespond, disabled }) {
                             onClick={() => handleSelect(index)}
                             disabled={responded || disabled}
                         >
-                            <div style={{ fontWeight: 500 }}>{typeof label === 'string' ? label : JSON.stringify(label)}</div>
+                            <div style={{ fontWeight: 500 }}>{label}</div>
                             {subtitle && (
                                 <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginTop: 4 }}>
                                     {subtitle}
