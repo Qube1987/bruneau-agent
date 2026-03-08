@@ -1,5 +1,69 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+
+// ── Geocoding (same approach as SAV app — Nominatim + Supabase cache) ──
+const geoMemCache = {};
+
+async function geocodeAddress(address) {
+    if (!address || !address.trim()) return null;
+    const cleaned = address.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // 1. Memory cache
+    if (geoMemCache[cleaned] !== undefined) return geoMemCache[cleaned];
+
+    // 2. Supabase cache
+    try {
+        const { data } = await supabase
+            .from('geocode_cache')
+            .select('latitude, longitude')
+            .eq('address', cleaned)
+            .maybeSingle();
+        if (data && data.latitude != null && data.longitude != null) {
+            const r = { lat: data.latitude, lon: data.longitude };
+            geoMemCache[cleaned] = r;
+            return r;
+        }
+        if (data) {
+            // cached as un-geocodable
+            geoMemCache[cleaned] = null;
+            return null;
+        }
+    } catch { /* ignore cache miss */ }
+
+    // 3. Nominatim API (1 req/s rate limit respected by caller)
+    try {
+        const resp = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleaned)}&limit=1&countrycodes=fr`,
+            { headers: { 'Accept': 'application/json' } }
+        );
+        if (!resp.ok) throw new Error('Nominatim error');
+        const arr = await resp.json();
+        if (arr.length > 0) {
+            const r = { lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon) };
+            geoMemCache[cleaned] = r;
+            // Persist to cache
+            supabase.from('geocode_cache').upsert({
+                address: cleaned,
+                latitude: r.lat,
+                longitude: r.lon,
+                display_name: arr[0].display_name,
+                updated_at: new Date().toISOString(),
+            }).then(() => { });
+            return r;
+        }
+        // No result — cache as null
+        geoMemCache[cleaned] = null;
+        supabase.from('geocode_cache').upsert({
+            address: cleaned, latitude: null, longitude: null,
+            display_name: null, updated_at: new Date().toISOString(),
+        }).then(() => { });
+        return null;
+    } catch (e) {
+        console.error('Geocoding error:', cleaned, e);
+        geoMemCache[cleaned] = null;
+        return null;
+    }
+}
 
 const QUENTIN_CODE = '46516';
 const SMS_TEMPLATE = `Bonjour, je suis en route et serai chez vous dans XX min.\nCordialement,\nQuentin Bruneau\nSté Bruneau Protection`;
@@ -45,21 +109,12 @@ function buildGoogleMapsUrl(geoApts) {
     return url;
 }
 
-// Build a static map image URL using OpenStreetMap's staticmap service  
-function buildStaticMapUrl(geoApts) {
-    if (geoApts.length === 0) return null;
-    // Use OSM static map API (no key required)
-    const markers = geoApts.map((a, i) => `${a.lon},${a.lat},lightblue${i + 1}`).join('|');
-    // Center on first apt or average
-    const avgLat = geoApts.reduce((s, a) => s + a.lat, 0) / geoApts.length;
-    const avgLon = geoApts.reduce((s, a) => s + a.lon, 0) / geoApts.length;
-    return `https://staticmap.openstreetmap.de/staticmap.php?center=${avgLat},${avgLon}&zoom=10&size=600x300&maptype=mapnik&markers=${markers}`;
-}
 
 export default function MyDayMap({ onClose }) {
     const [appointments, setAppointments] = useState([]);
     const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [geocoding, setGeocoding] = useState(false);
     const [selectedDate, setSelectedDate] = useState(() => new Date());
 
     const goToPrevDay = () => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
@@ -149,6 +204,37 @@ export default function MyDayMap({ onClose }) {
         return () => { cancelled = true; };
     }, [selectedDate]);
 
+    // Geocode appointments that have an address but no GPS coordinates
+    useEffect(() => {
+        const needsGeo = appointments.filter(a => !a.lat && a.address);
+        if (needsGeo.length === 0) return;
+
+        let cancelled = false;
+        const doGeocode = async () => {
+            setGeocoding(true);
+            let updated = false;
+            for (const apt of needsGeo) {
+                if (cancelled) break;
+                const result = await geocodeAddress(apt.address);
+                if (result && !cancelled) {
+                    apt.lat = result.lat;
+                    apt.lon = result.lon;
+                    updated = true;
+                }
+                // Nominatim rate limit: 1 req/s
+                if (!cancelled) await new Promise(r => setTimeout(r, 1100));
+            }
+            if (updated && !cancelled) {
+                // Trigger re-render with updated coords
+                setAppointments(prev => [...prev]);
+            }
+            if (!cancelled) setGeocoding(false);
+        };
+
+        doGeocode();
+        return () => { cancelled = true; };
+    }, [appointments.length]); // only re-run when appointment list changes
+
     // Fetch routes between geolocated appointments
     useEffect(() => {
         const geoApts = appointments.filter(a => a.lat && a.lon);
@@ -184,7 +270,6 @@ export default function MyDayMap({ onClose }) {
     }, [appointments]);
 
     const geoApts = appointments.filter(a => a.lat && a.lon);
-    const staticMapUrl = buildStaticMapUrl(geoApts);
     const googleMapsUrl = buildGoogleMapsUrl(geoApts);
 
     return (
@@ -207,51 +292,41 @@ export default function MyDayMap({ onClose }) {
                     <button className="myday__close" onClick={onClose}>✕</button>
                 </div>
 
-                {/* Map area — static image (100% reliable, no JS dependencies) */}
+                {/* Map / navigation area */}
                 <div className="myday__map-container">
-                    {geoApts.length > 0 && staticMapUrl ? (
+                    {loading ? (
+                        <div className="myday__map-placeholder">
+                            <div className="myday__loading-spinner" />
+                            <p>Chargement…</p>
+                        </div>
+                    ) : appointments.length === 0 ? (
+                        <div className="myday__map-placeholder">
+                            <span>📅</span>
+                            <p>Aucun rendez-vous ce jour</p>
+                        </div>
+                    ) : geocoding ? (
+                        <div className="myday__map-placeholder">
+                            <div className="myday__loading-spinner" />
+                            <p>Géolocalisation des adresses…</p>
+                        </div>
+                    ) : geoApts.length > 0 ? (
                         <a
-                            href={googleMapsUrl || '#'}
+                            href={googleMapsUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="myday__map-link"
+                            className="myday__gmaps-btn"
                         >
-                            <img
-                                src={staticMapUrl}
-                                alt="Carte des rendez-vous"
-                                className="myday__map-img"
-                                onError={(e) => {
-                                    // Fallback: if static map fails, show a placeholder
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'flex';
-                                }}
-                            />
-                            <div className="myday__map-fallback" style={{ display: 'none' }}>
-                                <span>🗺️</span>
-                                <p>Carte non disponible</p>
-                            </div>
-                            <div className="myday__map-cta">
-                                📍 Ouvrir dans Google Maps
-                            </div>
+                            <span className="myday__gmaps-icon">🗺️</span>
+                            <span className="myday__gmaps-text">
+                                <strong>Ouvrir l'itinéraire</strong>
+                                <small>{geoApts.length} arrêt{geoApts.length > 1 ? 's' : ''} sur Google Maps</small>
+                            </span>
+                            <span className="myday__gmaps-arrow">→</span>
                         </a>
                     ) : (
                         <div className="myday__map-placeholder">
-                            {loading ? (
-                                <>
-                                    <div className="myday__loading-spinner" />
-                                    <p>Chargement...</p>
-                                </>
-                            ) : appointments.length === 0 ? (
-                                <>
-                                    <span>📅</span>
-                                    <p>Aucun rendez-vous ce jour</p>
-                                </>
-                            ) : (
-                                <>
-                                    <span>📍</span>
-                                    <p>Pas de coordonnées GPS pour ces RDV</p>
-                                </>
-                            )}
+                            <span>📍</span>
+                            <p>Adresses non géolocalisables</p>
                         </div>
                     )}
                 </div>
