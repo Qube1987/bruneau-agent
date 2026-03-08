@@ -206,9 +206,9 @@ export default function AgendaPanel({ onDataReady }) {
     useEffect(() => {
         let cancelled = false;
         const startStr = formatDateYMD(weekStart);
-        // Load Mon→Sun + 1 extra day (8 days) so weekends & next Monday are covered for MyDayPanel
+        // Load 3 weeks ahead so MyDayPanel navigation always has data
         const extendedEnd = new Date(weekStart);
-        extendedEnd.setDate(extendedEnd.getDate() + 7);
+        extendedEnd.setDate(extendedEnd.getDate() + 21);
         const endStr = formatDateYMD(extendedEnd);
 
         setCacheLoading(true);
