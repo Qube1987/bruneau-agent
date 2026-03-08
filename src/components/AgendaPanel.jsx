@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import TodoPanel from './TodoPanel';
 
 const TEAM_MEMBERS = [
     { name: 'Quentin', code: '46516', color: '#6c5ce7' },
@@ -153,7 +154,7 @@ function parseRawApts(rawData, userCode, member) {
     return result;
 }
 
-export default function AgendaPanel() {
+export default function AgendaPanel({ onDataReady }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState('agenda');
     const [savs, setSavs] = useState([]);
@@ -263,7 +264,11 @@ export default function AgendaPanel() {
         setLoading(cacheLoading && Object.keys(teamAptsCache).length === 0);
     }, [cacheLoading, teamAptsCache]);
 
-    // ── Preload SAV and Opportunities in background on mount ──
+    // ── Tasks state (shared with TodoPanel & MyDayPanel) ──
+    const [tasks, setTasks] = useState([]);
+    const [tasksLoaded, setTasksLoaded] = useState(false);
+
+    // ── Preload SAV, Opportunities and Tasks in background on mount ──
     const [savLoaded, setSavLoaded] = useState(false);
     const [oppLoaded, setOppLoaded] = useState(false);
 
@@ -292,7 +297,36 @@ export default function AgendaPanel() {
                 else console.error('Erreur fetch Opportunités:', error);
                 setOppLoaded(true);
             });
+
+        // Tasks — preload immediately
+        supabase.from('tasks')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .then(({ data, error }) => {
+                if (!error) setTasks(data || []);
+                else console.error('Erreur fetch Tasks:', error);
+                setTasksLoaded(true);
+            });
     }, []);
+
+    // ── Expose today's appointments and tasks for MyDayPanel ──
+    useEffect(() => {
+        if (onDataReady) {
+            const todayStr = new Date().toDateString();
+            const todayApts = [];
+            for (const code of Object.keys(teamAptsCache)) {
+                const cached = teamAptsCache[code];
+                if (cached) {
+                    cached.forEach(apt => {
+                        if (apt._start.toDateString() === todayStr) {
+                            todayApts.push(apt);
+                        }
+                    });
+                }
+            }
+            onDataReady({ todayApts, tasks });
+        }
+    }, [teamAptsCache, tasks, onDataReady]);
 
     const toggleTab = (tab) => {
         if (isExpanded && activeTab === tab) {
@@ -465,6 +499,14 @@ export default function AgendaPanel() {
                     <span>📋</span>
                     <span>Opps</span>
                     <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'opp' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
+                </button>
+                <button className={`agenda-panel__toggle ${activeTab === 'todo' && isExpanded ? 'agenda-panel__toggle--active' : ''}`} onClick={() => toggleTab('todo')} style={{ margin: 0 }}>
+                    <span>✅</span>
+                    <span>To Do</span>
+                    {tasks.filter(t => t.status !== 'done').length > 0 && (
+                        <span className="agenda-panel__badge">{tasks.filter(t => t.status !== 'done').length}</span>
+                    )}
+                    <span className={`agenda-panel__arrow ${isExpanded && activeTab === 'todo' ? 'agenda-panel__arrow--open' : ''}`}>▾</span>
                 </button>
             </div>
 
@@ -797,6 +839,19 @@ export default function AgendaPanel() {
                             </div>
                         ))}
                     </div>
+                </div>
+            )}
+
+            {isExpanded && activeTab === 'todo' && (
+                <div className="agenda-panel__content todo-panel__content">
+                    <div className="agenda-panel__nav">
+                        <span style={{ fontSize: 'var(--font-md)', fontWeight: 'bold' }}>📝 Mes Tâches</span>
+                        <div style={{ flex: 1 }} />
+                        <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran">
+                            {isFullScreen ? '⛙' : '⛶'}
+                        </button>
+                    </div>
+                    <TodoPanel tasks={tasks} setTasks={setTasks} loading={!tasksLoaded} />
                 </div>
             )}
         </div>

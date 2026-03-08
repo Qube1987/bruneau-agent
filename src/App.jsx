@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAgent } from './hooks/useAgent';
 import { useSpeechRecognition, useSpeechSynthesis } from './hooks/useSpeech';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
 import AgendaPanel from './components/AgendaPanel';
+import MyDayPanel from './components/MyDayPanel';
 
 const SUGGESTIONS = [
   { icon: '🔧', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
@@ -17,8 +18,12 @@ export default function App() {
   const { isListening, currentText, toggleListening, stopListening, getFinalTranscript } = useSpeechRecognition();
   const { speak } = useSpeechSynthesis();
   const [inputText, setInputText] = useState('');
+  const [showMyDay, setShowMyDay] = useState(false);
+  const [agendaData, setAgendaData] = useState({ todayApts: [], tasks: [] });
   const chatRef = useRef(null);
   const inputRef = useRef(null);
+
+  const handleAgendaData = useCallback((data) => setAgendaData(data), []);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -108,29 +113,30 @@ export default function App() {
           {messages.length > 0 && (
             <button
               onClick={clearConversation}
-              style={{
-                background: 'var(--bg-glass)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--text-secondary)',
-                padding: '6px 10px',
-                cursor: 'pointer',
-                fontSize: 'var(--font-xs)',
-                fontFamily: 'var(--font-family)',
-              }}
+              className="header__action-btn"
             >
               🗑️ Nouveau
             </button>
           )}
-          <div className="header__status">
-            <div className="header__status-dot" />
-            En ligne
-          </div>
+          <button
+            className="header__myday-btn"
+            onClick={() => setShowMyDay(true)}
+          >
+            ☀️ Ma journée
+          </button>
         </div>
       </header>
 
       {/* Agenda Panel */}
-      <AgendaPanel />
+      <AgendaPanel onDataReady={handleAgendaData} />
+
+      {/* My Day Overlay */}
+      <MyDayPanel
+        visible={showMyDay}
+        onClose={() => setShowMyDay(false)}
+        todayApts={agendaData.todayApts}
+        tasks={agendaData.tasks}
+      />
 
       {/* Chat Area */}
       <div className={`chat ${isEmpty ? 'chat--empty' : ''}`} ref={chatRef}>
