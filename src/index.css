@@ -233,20 +233,27 @@ body {
   font-weight: 400;
 }
 
-.header__status {
+.header__myday-btn {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-family: var(--font-family);
   font-size: var(--font-xs);
-  color: var(--success);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
-.header__status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--success);
-  animation: pulse-dot 2s ease-in-out infinite;
+.header__myday-btn:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 /* ===== Chat Area ===== */
@@ -1619,6 +1626,64 @@ body {
   font-size: var(--font-xs);
   color: var(--text-muted);
   text-transform: capitalize;
+}
+
+.myday__header-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.myday__nav-arrow {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  transition: all var(--transition-fast);
+}
+
+.myday__nav-arrow:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.myday__nav-date {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-transform: capitalize;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.myday__nav-date:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--accent);
+}
+
+.myday__today-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 .myday__close {

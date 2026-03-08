@@ -125,10 +125,9 @@ export default function App() {
               🗑️ Nouveau
             </button>
           )}
-          <div className="header__status">
-            <div className="header__status-dot" />
-            En ligne
-          </div>
+          <button className="header__myday-btn" onClick={() => setShowMyDay(true)} title="Ma Journée">
+            🗺️ Ma Journée
+          </button>
         </div>
       </header>
 
@@ -144,10 +143,7 @@ export default function App() {
             <p className="welcome__text">
               Je suis votre assistant vocal. Parlez-moi ou tapez une commande.
             </p>
-            <button className="welcome__myday-btn" onClick={() => setShowMyDay(true)}>
-              <span className="welcome__myday-icon">🗺️</span>
-              Ma Journée
-            </button>
+
             <div className="welcome__suggestions">
               {SUGGESTIONS.map((s, i) => (
                 <button

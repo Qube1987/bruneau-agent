@@ -37,19 +37,31 @@ export default function MyDayMap({ onClose }) {
     const mapRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const [appointments, setAppointments] = useState([]);
-    const [routes, setRoutes] = useState([]);     // travel segments between apts
+    const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeApt, setActiveApt] = useState(null);
+    const [selectedDate, setSelectedDate] = useState(() => new Date());
 
-    // Fetch today's appointments
+    const goToPrevDay = () => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
+    const goToNextDay = () => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
+    const goToToday = () => setSelectedDate(new Date());
+
+    const isToday = (() => {
+        const now = new Date();
+        return selectedDate.getFullYear() === now.getFullYear()
+            && selectedDate.getMonth() === now.getMonth()
+            && selectedDate.getDate() === now.getDate();
+    })();
+
+    // Fetch appointments for selected date
     useEffect(() => {
         let cancelled = false;
-        const fetchToday = async () => {
+        const fetchDay = async () => {
             setLoading(true);
-            const today = new Date();
-            const todayStr = formatDateYMD(today);
-            // End = same day
-            const tomorrowStr = formatDateYMD(new Date(today.getTime() + 86400000));
+            setAppointments([]);
+            setRoutes([]);
+            setActiveApt(null);
+            const dayStr = formatDateYMD(selectedDate);
 
             try {
                 const resp = await supabase.functions.invoke('extrabat-proxy', {
@@ -57,8 +69,8 @@ export default function MyDayMap({ onClose }) {
                         endpoint: `utilisateur/${QUENTIN_CODE}/rendez-vous`,
                         apiVersion: 'v1',
                         params: {
-                            date_debut: todayStr,
-                            date_fin: todayStr,
+                            date_debut: dayStr,
+                            date_fin: dayStr,
                             include: 'client',
                         },
                     },
@@ -116,9 +128,9 @@ export default function MyDayMap({ onClose }) {
             }
         };
 
-        fetchToday();
+        fetchDay();
         return () => { cancelled = true; };
-    }, []);
+    }, [selectedDate]);
 
     // Fetch routes between consecutive appointments with coordinates
     useEffect(() => {
@@ -246,9 +258,14 @@ export default function MyDayMap({ onClose }) {
                     <div className="myday__header-left">
                         <span className="myday__icon">🗺️</span>
                         <span className="myday__title">Ma Journée</span>
-                        <span className="myday__date">
-                            {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                        </span>
+                    </div>
+                    <div className="myday__header-nav">
+                        <button className="myday__nav-arrow" onClick={goToPrevDay} title="Jour précédent">◀</button>
+                        <button className="myday__nav-date" onClick={goToToday} title="Aujourd'hui">
+                            {selectedDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+                            {isToday && <span className="myday__today-dot" />}
+                        </button>
+                        <button className="myday__nav-arrow" onClick={goToNextDay} title="Jour suivant">▶</button>
                     </div>
                     <button className="myday__close" onClick={onClose}>✕</button>
                 </div>
@@ -267,7 +284,7 @@ export default function MyDayMap({ onClose }) {
                     {!loading && appointments.length === 0 && (
                         <div className="myday__empty">
                             <span>📅</span>
-                            <p>Aucun rendez-vous aujourd'hui</p>
+                            <p>Aucun rendez-vous ce jour</p>
                         </div>
                     )}
                 </div>
