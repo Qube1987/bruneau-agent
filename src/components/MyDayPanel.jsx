@@ -1,8 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '../lib/supabase';
-
-const HOUR_START = 7;
-const HOUR_END = 20;
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -15,35 +12,42 @@ function isOverdue(task) {
     return new Date(task.due_date) < new Date(new Date().toDateString());
 }
 
-function isTodayDate(d) {
-    const today = new Date();
-    const date = new Date(d);
-    return date.getFullYear() === today.getFullYear() &&
-        date.getMonth() === today.getMonth() &&
-        date.getDate() === today.getDate();
+function isSameDay(d1, d2) {
+    return d1.getFullYear() === d2.getFullYear() &&
+        d1.getMonth() === d2.getMonth() &&
+        d1.getDate() === d2.getDate();
 }
 
-export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
+export default function MyDayPanel({ visible, onClose, allApts, tasks }) {
+    const [dayOffset, setDayOffset] = useState(0);
+
     if (!visible) return null;
 
     const now = new Date();
-    const currentHour = now.getHours() + now.getMinutes() / 60;
+    const selectedDate = new Date(now);
+    selectedDate.setDate(selectedDate.getDate() + dayOffset);
+    const selectedDateStr = selectedDate.toDateString();
+    const isToday = dayOffset === 0;
 
-    // Sort appointments by start time
-    const sortedApts = [...todayApts].sort((a, b) => a._start - b._start);
+    // Filter appointments for the selected day
+    const dayApts = allApts
+        .filter(a => a._start.toDateString() === selectedDateStr)
+        .sort((a, b) => a._start - b._start);
 
-    // Find upcoming (next) appointment
-    const upcomingApt = sortedApts.find(a => a._start > now);
+    // Find upcoming (next) appointment — only relevant for today
+    const upcomingApt = isToday ? dayApts.find(a => a._start > now) : dayApts[0];
 
-    // Tasks due today or overdue
-    const todayTasks = tasks.filter(t => t.status !== 'done' && t.due_date && isTodayDate(t.due_date));
-    const overdueTasks = tasks.filter(t => isOverdue(t));
-    const pendingTasks = tasks.filter(t => t.status !== 'done' && !isOverdue(t));
+    // Tasks due on selected day
+    const dayTasks = tasks.filter(t => t.status !== 'done' && t.due_date && isSameDay(new Date(t.due_date), selectedDate));
+    const overdueTasks = isToday ? tasks.filter(t => isOverdue(t)) : [];
 
-    // Greeting based on time of day
+    // Greeting based on time of day (only for today)
     const hour = now.getHours();
-    const greeting = hour < 12 ? 'Bonjour' : hour < 18 ? 'Bon après-midi' : 'Bonsoir';
-    const dayName = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const greeting = isToday
+        ? (hour < 12 ? 'Bonjour' : hour < 18 ? 'Bon après-midi' : 'Bonsoir')
+        : dayOffset === 1 ? 'Demain' : dayOffset === -1 ? 'Hier' : '';
+
+    const dayName = selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
     // Toggle task completion
     const toggleTask = async (task) => {
@@ -54,14 +58,23 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
         }).eq('id', task.id);
     };
 
+    const goToday = () => setDayOffset(0);
+
     return (
         <div className="myday-overlay" onClick={onClose}>
             <div className="myday-sheet" onClick={e => e.stopPropagation()}>
-                {/* Header */}
+                {/* Header with day navigation */}
                 <div className="myday-header">
-                    <div>
-                        <div className="myday-greeting">{greeting} 👋</div>
-                        <div className="myday-date">{dayName}</div>
+                    <div style={{ flex: 1 }}>
+                        {greeting && <div className="myday-greeting">{greeting} 👋</div>}
+                        <div className="myday-nav">
+                            <button className="myday-nav__btn" onClick={() => setDayOffset(d => d - 1)} title="Jour précédent">◀</button>
+                            <span className="myday-date">{dayName}</span>
+                            <button className="myday-nav__btn" onClick={() => setDayOffset(d => d + 1)} title="Jour suivant">▶</button>
+                            {!isToday && (
+                                <button className="myday-nav__today" onClick={goToday}>Aujourd'hui</button>
+                            )}
+                        </div>
                     </div>
                     <button className="myday-close" onClick={onClose}>✕</button>
                 </div>
@@ -69,11 +82,11 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
                 {/* Stats strip */}
                 <div className="myday-stats">
                     <div className="myday-stat">
-                        <span className="myday-stat__num">{sortedApts.length}</span>
+                        <span className="myday-stat__num">{dayApts.length}</span>
                         <span className="myday-stat__label">RDV</span>
                     </div>
                     <div className="myday-stat">
-                        <span className="myday-stat__num">{todayTasks.length + overdueTasks.length}</span>
+                        <span className="myday-stat__num">{dayTasks.length + overdueTasks.length}</span>
                         <span className="myday-stat__label">Tâches</span>
                     </div>
                     {overdueTasks.length > 0 && (
@@ -88,7 +101,7 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
                     {/* Next appointment highlight */}
                     {upcomingApt && (
                         <div className="myday-next">
-                            <div className="myday-section-title">⏰ Prochain RDV</div>
+                            <div className="myday-section-title">{isToday ? '⏰ Prochain RDV' : '📌 Premier RDV'}</div>
                             <div className="myday-next__card" style={{ borderLeftColor: upcomingApt._color }}>
                                 <div className="myday-next__time">{formatTime(upcomingApt._start)} → {formatTime(upcomingApt._end)}</div>
                                 <div className="myday-next__title">{upcomingApt._clientName || upcomingApt._objet}</div>
@@ -104,14 +117,14 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
                         </div>
                     )}
 
-                    {/* Today's timeline */}
-                    {sortedApts.length > 0 && (
+                    {/* Day's timeline */}
+                    {dayApts.length > 0 && (
                         <div className="myday-section">
                             <div className="myday-section-title">📅 Planning du jour</div>
                             <div className="myday-timeline">
-                                {sortedApts.map((apt, i) => {
-                                    const isPast = apt._end < now;
-                                    const isCurrent = apt._start <= now && apt._end >= now;
+                                {dayApts.map((apt, i) => {
+                                    const isPast = isToday && apt._end < now;
+                                    const isCurrent = isToday && apt._start <= now && apt._end >= now;
                                     return (
                                         <div key={apt.id || i} className={`myday-apt ${isPast ? 'myday-apt--past' : ''} ${isCurrent ? 'myday-apt--current' : ''}`}>
                                             <div className="myday-apt__time-col">
@@ -135,7 +148,7 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
                         </div>
                     )}
 
-                    {/* Overdue tasks */}
+                    {/* Overdue tasks (only on today) */}
                     {overdueTasks.length > 0 && (
                         <div className="myday-section">
                             <div className="myday-section-title myday-section-title--danger">🔥 En retard</div>
@@ -148,11 +161,11 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
                         </div>
                     )}
 
-                    {/* Today's tasks */}
-                    {todayTasks.length > 0 && (
+                    {/* Day's tasks */}
+                    {dayTasks.length > 0 && (
                         <div className="myday-section">
                             <div className="myday-section-title">✅ Tâches du jour</div>
-                            {todayTasks.map(task => (
+                            {dayTasks.map(task => (
                                 <div key={task.id} className="myday-task">
                                     <button className="todo-checkbox" onClick={() => toggleTask(task)} style={{ borderColor: '#6c5ce7' }} />
                                     <div className="myday-task__title">{task.title}</div>
@@ -162,7 +175,7 @@ export default function MyDayPanel({ visible, onClose, todayApts, tasks }) {
                     )}
 
                     {/* Empty state */}
-                    {sortedApts.length === 0 && todayTasks.length === 0 && overdueTasks.length === 0 && (
+                    {dayApts.length === 0 && dayTasks.length === 0 && overdueTasks.length === 0 && (
                         <div className="myday-empty">
                             <span>🌤️</span>
                             <p>Journée libre ! Profitez-en ou ajoutez des tâches.</p>

@@ -309,22 +309,15 @@ export default function AgendaPanel({ onDataReady }) {
             });
     }, []);
 
-    // ── Expose today's appointments and tasks for MyDayPanel ──
+    // ── Expose all cached appointments and tasks for MyDayPanel ──
     useEffect(() => {
         if (onDataReady) {
-            const todayStr = new Date().toDateString();
-            const todayApts = [];
+            const allApts = [];
             for (const code of Object.keys(teamAptsCache)) {
                 const cached = teamAptsCache[code];
-                if (cached) {
-                    cached.forEach(apt => {
-                        if (apt._start.toDateString() === todayStr) {
-                            todayApts.push(apt);
-                        }
-                    });
-                }
+                if (cached) allApts.push(...cached);
             }
-            onDataReady({ todayApts, tasks });
+            onDataReady({ allApts, tasks });
         }
     }, [teamAptsCache, tasks, onDataReady]);
 

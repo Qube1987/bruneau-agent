@@ -19,7 +19,7 @@ export default function App() {
   const { speak } = useSpeechSynthesis();
   const [inputText, setInputText] = useState('');
   const [showMyDay, setShowMyDay] = useState(false);
-  const [agendaData, setAgendaData] = useState({ todayApts: [], tasks: [] });
+  const [agendaData, setAgendaData] = useState({ allApts: [], tasks: [] });
   const chatRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -134,7 +134,7 @@ export default function App() {
       <MyDayPanel
         visible={showMyDay}
         onClose={() => setShowMyDay(false)}
-        todayApts={agendaData.todayApts}
+        allApts={agendaData.allApts}
         tasks={agendaData.tasks}
       />
 
