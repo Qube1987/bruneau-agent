@@ -150,8 +150,17 @@ STRUCTURE DE LA BASE :
 - Table "maintenance_contracts" : contrats de maintenance (id, client_id, site_id, client_name, site, system_type, system_brand, status[actif/inactif], address, city_derived, annual_amount, billing_mode, invoice_sent, invoice_paid)
 - Table "stock_products" : stock (id, name, code_article, marque, fournisseur, depot_quantity, min_quantity, paul_truck_quantity, quentin_truck_quantity)
 - Table "stock_movements" : historique des mouvements stock (id, stock_product_id, movement_type[entrée/sortie/ajustement/transfert], location[depot/paul_truck/quentin_truck], quantity_change, comment, created_at)
-- Table "devis" : devis (id, client_id, devis_number, status[brouillon/envoye/accepte/refuse], titre_affaire, totaux)
+- Table "devis" : devis (id, client_id, devis_number, devis_type, status[brouillon/envoye/accepte/refuse/draft/sent/signed], titre_affaire, client(jsonb: nom, prenom, email, telephone, adresse), lignes(jsonb: tableau produits), totaux(jsonb: ht, ttc, tva, acompte), accepted_status[pending/accepted], public_token)
 - Table "call_notes" : notes d'appels (id, client_name, call_subject, notes, is_completed, priority)
+
+DEVIS (QUOTES) :
+- Quand on te demande "le devis Le Bras", "montre-moi le devis de M. Dupont", ou "les devis en cours", utilise search_devis ou list_devis
+- search_devis cherche par nom de client dans le champ JSONB client->>'nom' de la table devis
+- get_devis_details retourne le détail complet d'un devis : client, lignes de produits, totaux, statut d'acceptation
+- Pour les devis, présente les infos de façon structurée : client, titre, puis liste des produits avec quantités et prix, puis totaux (HT, TVA, TTC, acompte)
+- Les statuts de devis : brouillon/draft = en cours de rédaction, envoye/sent = envoyé au client, accepte/signed = signé par le client, refuse = refusé
+- accepted_status : pending = en attente, accepted = accepté par le client
+- Le lien public vers un devis est disponible via le public_token
 
 ENVOI DE SMS ET EMAILS :
 - Quand l'utilisateur demande d'envoyer un SMS ou un email, utilise compose_sms ou compose_email
@@ -230,10 +239,33 @@ const TOOLS = [
         parameters: {
             type: "OBJECT",
             properties: {
-                status: { type: "STRING", description: "Filtrer par statut : brouillon, envoye, accepte, refuse. Laisser vide pour tous." },
+                status: { type: "STRING", description: "Filtrer par statut : brouillon, draft, envoye, sent, accepte, signed, refuse. Laisser vide pour tous." },
                 period: { type: "STRING", description: "Période : today, week, month. Laisser vide pour tous." },
+                search: { type: "STRING", description: "Rechercher par nom de client (cherche dans le champ client JSONB et dans la table clients liée)" },
                 limit: { type: "NUMBER", description: "Nombre max de résultats (défaut: 20)" },
             },
+        },
+    },
+    {
+        name: "search_devis",
+        description: "Rechercher un devis par nom de client. Utilise cet outil quand on demande 'le devis Le Bras', 'le devis de M. Dupont', etc. Cherche dans le champ client JSONB du devis.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                query: { type: "STRING", description: "Nom (ou partie du nom) du client à rechercher dans les devis" },
+            },
+            required: ["query"],
+        },
+    },
+    {
+        name: "get_devis_details",
+        description: "Obtenir le détail COMPLET d'un devis : infos client, lignes de produits avec prix et quantités, totaux (HT, TVA, TTC, acompte), statut d'acceptation. Utiliser quand l'utilisateur veut voir un devis spécifique.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                devis_id: { type: "STRING", description: "UUID du devis à consulter" },
+            },
+            required: ["devis_id"],
         },
     },
     {
@@ -762,11 +794,23 @@ async function executeTool(toolName: string, args: any): Promise<any> {
         // ===== LIST DEVIS =====
         case "list_devis": {
             let query = db.from("devis")
-                .select("id, devis_number, titre_affaire, status, totaux, created_at, client_id, clients:client_id(nom, prenom)")
+                .select("id, devis_number, titre_affaire, status, totaux, created_at, accepted_status, devis_type, client_id, client, clients:client_id(nom, prenom)")
                 .order("created_at", { ascending: false })
                 .limit(args.limit || 20);
 
-            if (args.status) query = query.eq("status", args.status);
+            if (args.status) {
+                // Handle status aliases
+                const statusMap: Record<string, string[]> = {
+                    "brouillon": ["brouillon", "draft"],
+                    "draft": ["brouillon", "draft"],
+                    "envoye": ["envoye", "sent"],
+                    "sent": ["envoye", "sent"],
+                    "accepte": ["accepte", "signed"],
+                    "signed": ["accepte", "signed"],
+                };
+                const statusValues = statusMap[args.status.toLowerCase()] || [args.status];
+                query = query.in("status", statusValues);
+            }
 
             const dateFilter = getDateFilter(args.period);
             if (dateFilter) query = query.gte("created_at", dateFilter.toISOString());
@@ -774,13 +818,144 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const { data, error } = await query;
             if (error) return { error: error.message };
 
-            const results = (data || []).map((d: any) => ({
-                ...d,
-                client_name: d.clients ? `${d.clients.nom || ""} ${d.clients.prenom || ""}`.trim() : "Inconnu",
-                montant_ttc: d.totaux?.totalTTC || d.totaux?.total_ttc || null,
-            }));
+            let results = (data || []).map((d: any) => {
+                // Get client name from FK join or from JSONB client field
+                const clientName = d.clients
+                    ? `${d.clients.nom || ""} ${d.clients.prenom || ""}`.trim()
+                    : (d.client?.nom ? `${d.client.nom} ${d.client.prenom || ""}`.trim() : "Inconnu");
+                return {
+                    id: d.id,
+                    devis_number: d.devis_number,
+                    titre_affaire: d.titre_affaire,
+                    status: d.status,
+                    accepted_status: d.accepted_status,
+                    devis_type: d.devis_type,
+                    client_name: clientName,
+                    montant_ht: d.totaux?.ht || null,
+                    montant_ttc: d.totaux?.ttc || d.totaux?.totalTTC || d.totaux?.total_ttc || null,
+                    acompte: d.totaux?.acompte || null,
+                    created_at: d.created_at,
+                };
+            });
+
+            // Filter by client name search if provided
+            if (args.search) {
+                const searchLower = args.search.toLowerCase();
+                results = results.filter((d: any) =>
+                    d.client_name?.toLowerCase().includes(searchLower)
+                );
+            }
 
             return { devis: results, count: results.length };
+        }
+
+        // ===== SEARCH DEVIS =====
+        case "search_devis": {
+            const searchQuery = args.query || "";
+            const words = searchQuery.split(/\s+/).filter((w: string) => w.length > 1);
+
+            // Search in JSONB client field (client->>'nom') and also via client_id FK
+            const { data: allDevis, error: searchError } = await db.from("devis")
+                .select("id, devis_number, titre_affaire, status, totaux, created_at, accepted_status, devis_type, client_id, client, public_token, clients:client_id(nom, prenom)")
+                .order("created_at", { ascending: false })
+                .limit(50);
+
+            if (searchError) return { error: searchError.message };
+
+            // Filter by client name (search in JSONB client.nom AND FK client.nom)
+            const filtered = (allDevis || []).filter((d: any) => {
+                const jsonbNom = (d.client?.nom || "").toLowerCase();
+                const jsonbPrenom = (d.client?.prenom || "").toLowerCase();
+                const fkNom = (d.clients?.nom || "").toLowerCase();
+                const fkPrenom = (d.clients?.prenom || "").toLowerCase();
+                const titreAffaire = (d.titre_affaire || "").toLowerCase();
+                const allText = `${jsonbNom} ${jsonbPrenom} ${fkNom} ${fkPrenom} ${titreAffaire}`;
+                return words.every((w: string) => allText.includes(w.toLowerCase()));
+            });
+
+            const results = filtered.map((d: any) => {
+                const clientName = d.clients
+                    ? `${d.clients.nom || ""} ${d.clients.prenom || ""}`.trim()
+                    : (d.client?.nom ? `${d.client.nom} ${d.client.prenom || ""}`.trim() : "Inconnu");
+                return {
+                    id: d.id,
+                    devis_number: d.devis_number,
+                    titre_affaire: d.titre_affaire,
+                    status: d.status,
+                    accepted_status: d.accepted_status,
+                    devis_type: d.devis_type,
+                    client_name: clientName,
+                    client_email: d.client?.email || null,
+                    client_telephone: d.client?.telephone || null,
+                    client_adresse: d.client?.adresse || null,
+                    montant_ht: d.totaux?.ht || null,
+                    montant_ttc: d.totaux?.ttc || null,
+                    acompte: d.totaux?.acompte || null,
+                    created_at: d.created_at,
+                    nb_lignes: d.client ? (Array.isArray(JSON.parse(JSON.stringify(d)).lignes) ? JSON.parse(JSON.stringify(d)).lignes?.length : 0) : 0,
+                };
+            }).slice(0, 10);
+
+            return { devis: results, count: results.length, query: searchQuery };
+        }
+
+        // ===== GET DEVIS DETAILS =====
+        case "get_devis_details": {
+            const { data: devisData, error: devisError } = await db.from("devis")
+                .select("id, devis_number, titre_affaire, status, client, lignes, totaux, taux_tva, observations, intro_text, options, selected_options, custom_quantities, accepted_status, accepted_at, devis_type, public_token, created_at, updated_at, client_id, clients:client_id(nom, prenom, email, telephone, adresse, code_postal, ville)")
+                .eq("id", args.devis_id)
+                .single();
+
+            if (devisError) return { error: devisError.message };
+            if (!devisData) return { error: "Devis non trouvé" };
+
+            // Build client info from FK or JSONB
+            const clientInfo = devisData.clients
+                ? {
+                    nom: `${devisData.clients.nom || ""} ${devisData.clients.prenom || ""}`.trim(),
+                    email: devisData.clients.email,
+                    telephone: devisData.clients.telephone,
+                    adresse: `${devisData.clients.adresse || ""} ${devisData.clients.code_postal || ""} ${devisData.clients.ville || ""}`.trim(),
+                }
+                : devisData.client || {};
+
+            // Format line items (products)
+            const lignes = (devisData.lignes || []).map((l: any) => ({
+                nom: l.name,
+                reference: l.reference,
+                description: l.description,
+                quantite: l.quantity,
+                prix_unitaire_ht: l.price_ht,
+                total_ht: l.total_ht,
+                total_ttc: l.total_ttc,
+                tva: l.vat_rate ? `${l.vat_rate}%` : null,
+            }));
+
+            return {
+                id: devisData.id,
+                devis_number: devisData.devis_number,
+                titre_affaire: devisData.titre_affaire,
+                devis_type: devisData.devis_type,
+                status: devisData.status,
+                accepted_status: devisData.accepted_status,
+                accepted_at: devisData.accepted_at,
+                client: clientInfo,
+                lignes: lignes,
+                nb_articles: lignes.length,
+                totaux: {
+                    ht: devisData.totaux?.ht,
+                    tva: devisData.totaux?.tva,
+                    ttc: devisData.totaux?.ttc,
+                    acompte: devisData.totaux?.acompte,
+                },
+                taux_tva: devisData.taux_tva,
+                observations: devisData.observations,
+                intro_text: devisData.intro_text,
+                options: devisData.options,
+                selected_options: devisData.selected_options,
+                created_at: devisData.created_at,
+                updated_at: devisData.updated_at,
+            };
         }
 
         // ===== GET CLIENT HISTORY =====
