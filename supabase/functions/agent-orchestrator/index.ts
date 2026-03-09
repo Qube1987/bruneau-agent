@@ -1297,7 +1297,12 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 montant_estime: args.montant_estime || null,
                 suivi_par: args.suivi_par || "Quentin", statut: "a-contacter",
             };
-            if (validOppClientId) oppInsertData.client_id = validOppClientId;
+            if (validOppClientId) {
+                oppInsertData.client_id = validOppClientId;
+            } else if (args.client_name) {
+                // Store client name in commentaires when no valid Supabase client_id
+                oppInsertData.commentaires = `Client: ${args.client_name} (non importé dans Supabase)`;
+            }
 
             const { data, error } = await db.from("opportunites").insert(oppInsertData)
                 .select("id, titre, statut").single();
