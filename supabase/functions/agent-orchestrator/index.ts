@@ -389,7 +389,7 @@ const TOOLS = [
                 titre: { type: "STRING", description: "Titre de l'opportunité" },
                 description: { type: "STRING", description: "Description" },
                 montant_estime: { type: "NUMBER", description: "Montant estimé (optionnel)" },
-                suivi_par: { type: "STRING", description: "Personne en charge (défaut: Quentin)" },
+                suivi_par: { type: "STRING", description: "Personne en charge. Valeurs possibles: Quentin BRUNEAU, Paul PICARD, Cindy BRUNEAU, Hugo COSTES, Téo BRIERE. (défaut: Quentin BRUNEAU). IMPORTANT: utiliser le nom complet 'Prénom NOM'." },
             },
             required: ["client_name", "titre", "description"],
         },
@@ -548,6 +548,24 @@ async function searchExtrabat(query: string): Promise<any[]> {
 const EXTRABAT_USERS: Record<string, string> = {
     "quentin": "46516", "paul": "218599", "cindy": "47191", "téo": "485533", "teo": "485533",
 };
+
+// Full name mapping for suivi_par (must match CRM's extrabat_utilisateurs.nom)
+const EXTRABAT_FULL_NAMES: Record<string, string> = {
+    "quentin": "Quentin BRUNEAU", "paul": "Paul PICARD", "cindy": "Cindy BRUNEAU",
+    "téo": "Téo BRIERE", "teo": "Téo BRIERE", "hugo": "Hugo COSTES",
+};
+
+function normalizeSuiviPar(name?: string): string {
+    if (!name) return "Quentin BRUNEAU";
+    // If already a full name, return as is
+    if (name.includes(" ") && name !== name.toLowerCase()) return name;
+    const clean = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    for (const [key, fullName] of Object.entries(EXTRABAT_FULL_NAMES)) {
+        const cleanKey = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (clean.includes(cleanKey)) return fullName;
+    }
+    return "Quentin BRUNEAU"; // Fallback
+}
 
 function getExtrabatCode(name?: string): string {
     if (!name) return "46516"; // Default: Quentin
@@ -1292,15 +1310,39 @@ async function executeTool(toolName: string, args: any): Promise<any> {
         // ===== CREATE OPPORTUNITY =====
         case "create_opportunity": {
             const validOppClientId = args.client_id && !args.client_id.startsWith("extrabat-") ? args.client_id : null;
+            const normalizedSuiviPar = normalizeSuiviPar(args.suivi_par);
             const oppInsertData: any = {
                 titre: args.titre, description: args.description || "",
                 montant_estime: args.montant_estime || null,
-                suivi_par: args.suivi_par || "Quentin", statut: "a-contacter",
+                suivi_par: normalizedSuiviPar, statut: "a-contacter",
             };
             if (validOppClientId) {
                 oppInsertData.client_id = validOppClientId;
+                // Enrich client data from Extrabat if missing in Supabase
+                try {
+                    const { data: clientData } = await db.from("clients").select("telephone, adresse, extrabat_id").eq("id", validOppClientId).single();
+                    if (clientData && (!clientData.telephone || !clientData.adresse) && clientData.extrabat_id) {
+                        console.log("Enriching client data from Extrabat, extrabat_id:", clientData.extrabat_id);
+                        const extrabatData = await searchExtrabat(args.client_name || "");
+                        const matchingClient = extrabatData.find((c: any) => c.extrabat_id === clientData.extrabat_id);
+                        if (matchingClient) {
+                            const updateFields: any = {};
+                            if (!clientData.telephone && matchingClient.telephone) updateFields.telephone = matchingClient.telephone;
+                            if (!clientData.adresse && matchingClient.adresse) {
+                                updateFields.adresse = matchingClient.adresse;
+                                if (matchingClient.code_postal) updateFields.code_postal = matchingClient.code_postal;
+                                if (matchingClient.ville) updateFields.ville = matchingClient.ville;
+                            }
+                            if (Object.keys(updateFields).length > 0) {
+                                console.log("Updating client with Extrabat data:", updateFields);
+                                await db.from("clients").update(updateFields).eq("id", validOppClientId);
+                            }
+                        }
+                    }
+                } catch (enrichError) {
+                    console.error("Error enriching client data:", enrichError);
+                }
             } else if (args.client_name) {
-                // Store client name in commentaires when no valid Supabase client_id
                 oppInsertData.commentaires = `Client: ${args.client_name} (non importé dans Supabase)`;
             }
 
@@ -1723,7 +1765,7 @@ async function handleConversation(body: any): Promise<any> {
                 const result = await executeTool("create_opportunity", {
                     client_id: details.client_id || null, client_name: details.client_name || "",
                     titre: details.titre || "", description: details.description || "",
-                    montant_estime: details.montant_estime || null, suivi_par: details.suivi_par || "Quentin",
+                    montant_estime: details.montant_estime || null, suivi_par: normalizeSuiviPar(details.suivi_par),
                 });
                 if (result?.success) return { type: "success", message: `Opportunité créée avec succès pour ${details.client_name || "le client"}.` };
                 return { type: "error", message: `Erreur création opportunité : ${result?.error || "inconnue"}` };
