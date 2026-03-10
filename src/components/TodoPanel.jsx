@@ -17,6 +17,30 @@ const CATEGORIES = [
     { value: 'perso', label: '🏠', name: 'Perso' },
 ];
 
+const REMINDER_SHORTCUTS = [
+    { label: '5 min avant', offset: -5 * 60 * 1000 },
+    { label: '15 min avant', offset: -15 * 60 * 1000 },
+    { label: '1h avant', offset: -60 * 60 * 1000 },
+    { label: 'La veille à 20h', offset: 'veille' },
+    { label: '1 semaine avant', offset: -7 * 24 * 60 * 60 * 1000 },
+    { label: 'Personnalisé...', offset: 'custom' },
+];
+
+function computeReminderAt(dueDate, shortcut) {
+    if (!dueDate || !shortcut) return null;
+    const due = new Date(dueDate);
+    if (shortcut.offset === 'veille') {
+        const veille = new Date(due);
+        veille.setDate(veille.getDate() - 1);
+        veille.setHours(20, 0, 0, 0);
+        return veille.toISOString();
+    }
+    if (typeof shortcut.offset === 'number') {
+        return new Date(due.getTime() + shortcut.offset).toISOString();
+    }
+    return null;
+}
+
 function formatDueDate(d) {
     if (!d) return '';
     const date = new Date(d);
@@ -37,21 +61,41 @@ function formatDueDate(d) {
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
+function formatReminderLabel(reminderAt, dueDate) {
+    if (!reminderAt) return '';
+    const r = new Date(reminderAt);
+    if (!dueDate) return r.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    const d = new Date(dueDate);
+    const diff = d.getTime() - r.getTime();
+    if (diff <= 6 * 60 * 1000) return '5 min avant';
+    if (diff <= 16 * 60 * 1000) return '15 min avant';
+    if (diff <= 61 * 60 * 1000) return '1h avant';
+    if (diff >= 6.5 * 24 * 60 * 60 * 1000) return '1 sem. avant';
+    // Check if it's "veille à 20h"
+    const veille = new Date(d);
+    veille.setDate(veille.getDate() - 1);
+    veille.setHours(20, 0, 0, 0);
+    if (Math.abs(r.getTime() - veille.getTime()) < 60000) return 'La veille 20h';
+    return r.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 function isOverdue(task) {
     if (!task.due_date || task.status === 'done') return false;
     return new Date(task.due_date) < new Date(new Date().toDateString());
 }
 
 export default function TodoPanel({ tasks, setTasks, loading: externalLoading }) {
-    const [filter, setFilter] = useState('active'); // active, done, all
+    const [filter, setFilter] = useState('active');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newTitle, setNewTitle] = useState('');
+    const [newDescription, setNewDescription] = useState('');
     const [newPriority, setNewPriority] = useState('medium');
     const [newCategory, setNewCategory] = useState('general');
     const [newDueDate, setNewDueDate] = useState('');
-    const [editingId, setEditingId] = useState(null);
-    const [editTitle, setEditTitle] = useState('');
+    const [newReminderType, setNewReminderType] = useState('');
+    const [newReminderCustom, setNewReminderCustom] = useState('');
     const [completingIds, setCompletingIds] = useState(new Set());
+    const [editingTask, setEditingTask] = useState(null);
     const addInputRef = useRef(null);
 
     useEffect(() => {
@@ -60,25 +104,43 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         }
     }, [showAddForm]);
 
+    const computeNewReminder = () => {
+        if (!newReminderType || !newDueDate) return null;
+        const shortcut = REMINDER_SHORTCUTS.find(s => s.label === newReminderType);
+        if (!shortcut) return null;
+        if (shortcut.offset === 'custom') {
+            return newReminderCustom ? new Date(newReminderCustom).toISOString() : null;
+        }
+        const dueDateISO = new Date(newDueDate).toISOString();
+        return computeReminderAt(dueDateISO, shortcut);
+    };
+
     const addTask = async () => {
         const title = newTitle.trim();
         if (!title) return;
 
+        const reminder_at = computeNewReminder();
+
         const newTask = {
             title,
+            description: newDescription.trim() || '',
             priority: newPriority,
             category: newCategory,
             due_date: newDueDate ? new Date(newDueDate).toISOString() : null,
+            reminder_at,
+            reminder_sent: false,
             status: 'pending',
         };
 
-        // Optimistic add
         const tempId = 'temp-' + Date.now();
         setTasks(prev => [{ ...newTask, id: tempId, created_at: new Date().toISOString() }, ...prev]);
         setNewTitle('');
+        setNewDescription('');
         setNewPriority('medium');
         setNewCategory('general');
         setNewDueDate('');
+        setNewReminderType('');
+        setNewReminderCustom('');
         setShowAddForm(false);
 
         const { data, error } = await supabase.from('tasks').insert(newTask).select().single();
@@ -90,12 +152,12 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         }
     };
 
-    const toggleComplete = async (task) => {
+    const toggleComplete = async (task, e) => {
+        e.stopPropagation();
         const newStatus = task.status === 'done' ? 'pending' : 'done';
         const completedAt = newStatus === 'done' ? new Date().toISOString() : null;
 
         if (newStatus === 'done') {
-            // Animate before removing
             setCompletingIds(prev => new Set([...prev, task.id]));
             setTimeout(() => {
                 setCompletingIds(prev => { const next = new Set(prev); next.delete(task.id); return next; });
@@ -108,33 +170,55 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         await supabase.from('tasks').update({ status: newStatus, completed_at: completedAt }).eq('id', task.id);
     };
 
-    const deleteTask = async (id) => {
+    const deleteTask = async (id, e) => {
+        if (e) e.stopPropagation();
         setTasks(prev => prev.filter(t => t.id !== id));
+        if (editingTask?.id === id) setEditingTask(null);
         await supabase.from('tasks').delete().eq('id', id);
     };
 
-    const startEdit = (task) => {
-        setEditingId(task.id);
-        setEditTitle(task.title);
+    const openEditModal = (task) => {
+        setEditingTask({ ...task });
     };
 
-    const saveEdit = async (task) => {
-        const title = editTitle.trim();
-        if (!title) return;
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, title } : t));
-        setEditingId(null);
-        await supabase.from('tasks').update({ title }).eq('id', task.id);
+    const saveEditModal = async () => {
+        if (!editingTask) return;
+        const updates = {
+            title: editingTask.title?.trim() || '',
+            description: editingTask.description?.trim() || '',
+            priority: editingTask.priority,
+            category: editingTask.category,
+            due_date: editingTask.due_date,
+            reminder_at: editingTask.reminder_at,
+            reminder_sent: editingTask.reminder_at ? false : editingTask.reminder_sent,
+        };
+        if (!updates.title) return;
+
+        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...updates } : t));
+        setEditingTask(null);
+        await supabase.from('tasks').update(updates).eq('id', editingTask.id);
     };
 
-    const updatePriority = async (task, priority) => {
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, priority } : t));
-        await supabase.from('tasks').update({ priority }).eq('id', task.id);
+    const setEditReminder = (shortcutLabel) => {
+        if (!editingTask) return;
+        if (shortcutLabel === '') {
+            setEditingTask(prev => ({ ...prev, reminder_at: null, _reminderType: '' }));
+            return;
+        }
+        const shortcut = REMINDER_SHORTCUTS.find(s => s.label === shortcutLabel);
+        if (!shortcut) return;
+        if (shortcut.offset === 'custom') {
+            setEditingTask(prev => ({ ...prev, _reminderType: 'custom' }));
+            return;
+        }
+        if (!editingTask.due_date) return;
+        const reminderAt = computeReminderAt(editingTask.due_date, shortcut);
+        setEditingTask(prev => ({ ...prev, reminder_at: reminderAt, _reminderType: shortcutLabel }));
     };
 
-    const updateDueDate = async (task, due_date) => {
-        const val = due_date ? new Date(due_date).toISOString() : null;
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, due_date: val } : t));
-        await supabase.from('tasks').update({ due_date: val }).eq('id', task.id);
+    const setEditCustomReminder = (val) => {
+        if (!val) return;
+        setEditingTask(prev => ({ ...prev, reminder_at: new Date(val).toISOString(), _reminderType: 'custom' }));
     };
 
     // Filtered and sorted
@@ -190,10 +274,17 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                         ref={addInputRef}
                         className="todo-add-form__input"
                         type="text"
-                        placeholder="Titre de la tâche..."
+                        placeholder="Objet de la tâche..."
                         value={newTitle}
                         onChange={e => setNewTitle(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') addTask(); if (e.key === 'Escape') setShowAddForm(false); }}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) addTask(); if (e.key === 'Escape') setShowAddForm(false); }}
+                    />
+                    <textarea
+                        className="todo-add-form__textarea"
+                        placeholder="Description (optionnel)..."
+                        value={newDescription}
+                        onChange={e => setNewDescription(e.target.value)}
+                        rows={2}
                     />
                     <div className="todo-add-form__options">
                         <select className="todo-add-form__select" value={newPriority} onChange={e => setNewPriority(e.target.value)}>
@@ -202,7 +293,34 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                         <select className="todo-add-form__select" value={newCategory} onChange={e => setNewCategory(e.target.value)}>
                             {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label} {c.name}</option>)}
                         </select>
-                        <input className="todo-add-form__date" type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} />
+                        <div className="todo-add-form__date-wrapper">
+                            <label className="todo-add-form__date-label">📅 Échéance</label>
+                            <input className="todo-add-form__date" type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} />
+                        </div>
+                        <div className="todo-add-form__date-wrapper">
+                            <label className="todo-add-form__date-label">🔔 Rappel</label>
+                            <select
+                                className="todo-add-form__select"
+                                value={newReminderType}
+                                onChange={e => setNewReminderType(e.target.value)}
+                                disabled={!newDueDate}
+                                title={!newDueDate ? 'Choisissez d\'abord une échéance' : ''}
+                            >
+                                <option value="">Aucun</option>
+                                {REMINDER_SHORTCUTS.map(s => (
+                                    <option key={s.label} value={s.label}>{s.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {newReminderType === 'Personnalisé...' && (
+                            <input
+                                className="todo-add-form__date"
+                                type="datetime-local"
+                                value={newReminderCustom}
+                                onChange={e => setNewReminderCustom(e.target.value)}
+                                style={{ minWidth: '160px' }}
+                            />
+                        )}
                     </div>
                     <div className="todo-add-form__actions">
                         <button className="todo-add-form__submit" onClick={addTask} disabled={!newTitle.trim()}>Ajouter</button>
@@ -231,12 +349,14 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                             <div
                                 key={task.id}
                                 className={`todo-item ${task.status === 'done' ? 'todo-item--done' : ''} ${overdue ? 'todo-item--overdue' : ''} ${completing ? 'todo-item--completing' : ''}`}
+                                onClick={() => openEditModal(task)}
+                                style={{ cursor: 'pointer' }}
                             >
                                 {/* Checkbox */}
                                 <button
                                     className={`todo-checkbox ${task.status === 'done' ? 'todo-checkbox--checked' : ''}`}
                                     style={{ borderColor: pri.color, background: task.status === 'done' ? pri.color : 'transparent' }}
-                                    onClick={() => toggleComplete(task)}
+                                    onClick={(e) => toggleComplete(task, e)}
                                     title={task.status === 'done' ? 'Marquer non terminée' : 'Marquer terminée'}
                                 >
                                     {task.status === 'done' && <span className="todo-checkbox__check">✓</span>}
@@ -244,25 +364,22 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
 
                                 {/* Content */}
                                 <div className="todo-item__content">
-                                    {editingId === task.id ? (
-                                        <input
-                                            className="todo-item__edit-input"
-                                            value={editTitle}
-                                            onChange={e => setEditTitle(e.target.value)}
-                                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(task); if (e.key === 'Escape') setEditingId(null); }}
-                                            onBlur={() => saveEdit(task)}
-                                            autoFocus
-                                        />
-                                    ) : (
-                                        <div className="todo-item__title" onDoubleClick={() => startEdit(task)}>
-                                            {task.title}
-                                        </div>
+                                    <div className="todo-item__title">
+                                        {task.title}
+                                    </div>
+                                    {task.description && (
+                                        <div className="todo-item__description">{task.description}</div>
                                     )}
                                     <div className="todo-item__meta">
                                         {cat && <span className="todo-item__category">{cat.label} {cat.name}</span>}
                                         {task.due_date && (
                                             <span className={`todo-item__due ${overdue ? 'todo-item__due--overdue' : ''}`}>
                                                 📅 {formatDueDate(task.due_date)}
+                                            </span>
+                                        )}
+                                        {task.reminder_at && !task.reminder_sent && (
+                                            <span className="todo-item__reminder">
+                                                🔔 {formatReminderLabel(task.reminder_at, task.due_date)}
                                             </span>
                                         )}
                                     </div>
@@ -273,28 +390,145 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                                     {pri.label}
                                 </div>
 
-                                {/* Actions */}
-                                <div className="todo-item__actions">
-                                    <input
-                                        type="date"
-                                        className="todo-item__date-picker"
-                                        value={task.due_date ? task.due_date.split('T')[0] : ''}
-                                        onChange={e => updateDueDate(task, e.target.value)}
-                                        title="Échéance"
-                                    />
-                                    <select
-                                        className="todo-item__priority-select"
-                                        value={task.priority}
-                                        onChange={e => updatePriority(task, e.target.value)}
-                                        title="Priorité"
-                                    >
-                                        {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                                    </select>
-                                    <button className="todo-item__delete" onClick={() => deleteTask(task.id)} title="Supprimer">🗑️</button>
+                                {/* Quick delete */}
+                                <div className="todo-item__actions" onClick={e => e.stopPropagation()}>
+                                    <button className="todo-item__delete" onClick={(e) => deleteTask(task.id, e)} title="Supprimer">🗑️</button>
                                 </div>
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Edit Modal */}
+            {editingTask && (
+                <div className="todo-modal-overlay" onClick={() => setEditingTask(null)}>
+                    <div className="todo-modal" onClick={e => e.stopPropagation()}>
+                        <div className="todo-modal__header">
+                            <h3 className="todo-modal__title">Modifier la tâche</h3>
+                            <button className="todo-modal__close" onClick={() => setEditingTask(null)}>✕</button>
+                        </div>
+
+                        <div className="todo-modal__body">
+                            {/* Objet */}
+                            <div className="todo-modal__field">
+                                <label className="todo-modal__label">Objet</label>
+                                <input
+                                    className="todo-modal__input"
+                                    type="text"
+                                    value={editingTask.title || ''}
+                                    onChange={e => setEditingTask(prev => ({ ...prev, title: e.target.value }))}
+                                    autoFocus
+                                />
+                            </div>
+
+                            {/* Description */}
+                            <div className="todo-modal__field">
+                                <label className="todo-modal__label">Description</label>
+                                <textarea
+                                    className="todo-modal__textarea"
+                                    value={editingTask.description || ''}
+                                    onChange={e => setEditingTask(prev => ({ ...prev, description: e.target.value }))}
+                                    rows={3}
+                                    placeholder="Ajouter une description..."
+                                />
+                            </div>
+
+                            {/* Priority & Category */}
+                            <div className="todo-modal__row">
+                                <div className="todo-modal__field todo-modal__field--half">
+                                    <label className="todo-modal__label">Priorité</label>
+                                    <select
+                                        className="todo-modal__select"
+                                        value={editingTask.priority}
+                                        onChange={e => setEditingTask(prev => ({ ...prev, priority: e.target.value }))}
+                                    >
+                                        {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label} {p.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="todo-modal__field todo-modal__field--half">
+                                    <label className="todo-modal__label">Catégorie</label>
+                                    <select
+                                        className="todo-modal__select"
+                                        value={editingTask.category || 'general'}
+                                        onChange={e => setEditingTask(prev => ({ ...prev, category: e.target.value }))}
+                                    >
+                                        {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label} {c.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Due date */}
+                            <div className="todo-modal__field">
+                                <label className="todo-modal__label">📅 Échéance</label>
+                                <input
+                                    className="todo-modal__input"
+                                    type="date"
+                                    value={editingTask.due_date ? editingTask.due_date.split('T')[0] : ''}
+                                    onChange={e => {
+                                        const val = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                        setEditingTask(prev => ({ ...prev, due_date: val }));
+                                    }}
+                                />
+                            </div>
+
+                            {/* Reminder */}
+                            <div className="todo-modal__field">
+                                <label className="todo-modal__label">🔔 Rappel</label>
+                                {editingTask.reminder_at && (
+                                    <div className="todo-modal__reminder-current">
+                                        Rappel actuel : {new Date(editingTask.reminder_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+                                        <button
+                                            className="todo-modal__reminder-remove"
+                                            onClick={() => setEditReminder('')}
+                                            title="Supprimer le rappel"
+                                        >✕</button>
+                                    </div>
+                                )}
+                                <div className="todo-modal__reminder-shortcuts">
+                                    {REMINDER_SHORTCUTS.filter(s => s.offset !== 'custom').map(s => (
+                                        <button
+                                            key={s.label}
+                                            className="todo-modal__reminder-btn"
+                                            disabled={!editingTask.due_date}
+                                            onClick={() => setEditReminder(s.label)}
+                                            title={!editingTask.due_date ? 'Choisissez d\'abord une échéance' : ''}
+                                        >
+                                            {s.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="todo-modal__reminder-custom">
+                                    <label className="todo-modal__label-sm">Ou date/heure personnalisée :</label>
+                                    <input
+                                        className="todo-modal__input"
+                                        type="datetime-local"
+                                        value={editingTask.reminder_at ? editingTask.reminder_at.slice(0, 16) : ''}
+                                        onChange={e => setEditCustomReminder(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="todo-modal__footer">
+                            <button
+                                className="todo-modal__delete-btn"
+                                onClick={() => deleteTask(editingTask.id)}
+                            >
+                                🗑️ Supprimer
+                            </button>
+                            <div className="todo-modal__footer-right">
+                                <button className="todo-add-form__cancel" onClick={() => setEditingTask(null)}>Annuler</button>
+                                <button
+                                    className="todo-add-form__submit"
+                                    onClick={saveEditModal}
+                                    disabled={!editingTask.title?.trim()}
+                                >
+                                    Enregistrer
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
