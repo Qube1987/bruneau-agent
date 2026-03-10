@@ -29,6 +29,7 @@ export default function App() {
   const [agendaData, setAgendaData] = useState({ allApts: [], tasks: [] });
   const chatRef = useRef(null);
   const inputRef = useRef(null);
+  const agendaRef = useRef(null);
 
   // Push notifications
   const { isSubscribed, isSupported, subscribing, subscribe, unsubscribe } = usePushNotifications(currentUser?.id);
@@ -209,7 +210,7 @@ export default function App() {
       </header>
 
       {/* Agenda Panel */}
-      <AgendaPanel onDataReady={handleAgendaData} />
+      <AgendaPanel ref={agendaRef} onDataReady={handleAgendaData} />
 
       {/* My Day Overlay */}
       <MyDayPanel
@@ -221,9 +222,15 @@ export default function App() {
         userName={currentUser.display_name}
       />
 
-      {/* RDV Confirm Overlay */}
       {showRdvConfirm && (
-        <NotificationPanel onClose={() => setShowRdvConfirm(false)} tasks={agendaData.tasks} />
+        <NotificationPanel
+          onClose={() => setShowRdvConfirm(false)}
+          tasks={agendaData.tasks}
+          onNavigate={(tab) => {
+            setShowRdvConfirm(false);
+            agendaRef.current?.openTab(tab);
+          }}
+        />
       )}
 
       {/* Chat Area */}

@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
  * 2. Pending task reminders
  * 3. Tasks due within 3 days
  */
-export default function NotificationPanel({ onClose, tasks = [] }) {
+export default function NotificationPanel({ onClose, tasks = [], onNavigate }) {
     const [appointments, setAppointments] = useState([]);
     const [loadingRdv, setLoadingRdv] = useState(true);
     const [sentSms, setSentSms] = useState({});
@@ -165,7 +165,7 @@ export default function NotificationPanel({ onClose, tasks = [] }) {
                                 🔥 En retard ({overdueTasks.length})
                             </div>
                             {overdueTasks.map(task => (
-                                <div key={task.id} className="notif-item notif-item--overdue">
+                                <div key={task.id} className="notif-item notif-item--overdue notif-item--clickable" onClick={() => onNavigate?.('todo')}>
                                     <div className="notif-item__icon">{PRIORITY_MAP[task.priority]?.emoji || '🔵'}</div>
                                     <div className="notif-item__content">
                                         <div className="notif-item__title">{task.title}</div>
@@ -183,7 +183,7 @@ export default function NotificationPanel({ onClose, tasks = [] }) {
                                 🔔 Rappels ({pendingReminders.length})
                             </div>
                             {pendingReminders.map(task => (
-                                <div key={task.id} className="notif-item">
+                                <div key={task.id} className="notif-item notif-item--clickable" onClick={() => onNavigate?.('todo')}>
                                     <div className="notif-item__icon">{PRIORITY_MAP[task.priority]?.emoji || '🔵'}</div>
                                     <div className="notif-item__content">
                                         <div className="notif-item__title">{task.title}</div>
@@ -202,7 +202,7 @@ export default function NotificationPanel({ onClose, tasks = [] }) {
                                 💬 RDV à confirmer ({rdvsWithClients.length})
                             </div>
                             {rdvsWithClients.map(apt => (
-                                <div key={apt.id} className="notif-item notif-item--rdv">
+                                <div key={apt.id} className="notif-item notif-item--rdv notif-item--clickable" onClick={() => onNavigate?.('agenda')}>
                                     <div className="notif-item__icon">📋</div>
                                     <div className="notif-item__content">
                                         <div className="notif-item__title">{apt.clientName}</div>
@@ -230,7 +230,7 @@ export default function NotificationPanel({ onClose, tasks = [] }) {
                                 ⏰ Échéances proches ({upcomingTasks.length})
                             </div>
                             {upcomingTasks.map(task => (
-                                <div key={task.id} className="notif-item">
+                                <div key={task.id} className="notif-item notif-item--clickable" onClick={() => onNavigate?.('todo')}>
                                     <div className="notif-item__icon">{PRIORITY_MAP[task.priority]?.emoji || '🔵'}</div>
                                     <div className="notif-item__content">
                                         <div className="notif-item__title">{task.title}</div>
@@ -248,7 +248,7 @@ export default function NotificationPanel({ onClose, tasks = [] }) {
                                 ⚠️ RDV sans numéro ({rdvsWithoutPhone.length})
                             </div>
                             {rdvsWithoutPhone.map(apt => (
-                                <div key={apt.id} className="notif-item notif-item--muted">
+                                <div key={apt.id} className="notif-item notif-item--muted notif-item--clickable" onClick={() => onNavigate?.('agenda')}>
                                     <div className="notif-item__icon">📋</div>
                                     <div className="notif-item__content">
                                         <div className="notif-item__title">{apt.clientName}</div>
@@ -268,7 +268,7 @@ export default function NotificationPanel({ onClose, tasks = [] }) {
                                 👤 Perso/interne ({rdvsPersonal.length})
                             </div>
                             {rdvsPersonal.map(apt => (
-                                <div key={apt.id} className="notif-item notif-item--muted">
+                                <div key={apt.id} className="notif-item notif-item--muted notif-item--clickable" onClick={() => onNavigate?.('agenda')}>
                                     <div className="notif-item__icon">📋</div>
                                     <div className="notif-item__content">
                                         <div className="notif-item__title">{apt.objet}</div>

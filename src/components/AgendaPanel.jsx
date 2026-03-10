@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { supabase } from '../lib/supabase';
 import TodoPanel from './TodoPanel';
 
@@ -154,7 +154,7 @@ function parseRawApts(rawData, userCode, member) {
     return result;
 }
 
-export default function AgendaPanel({ onDataReady }) {
+const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady }, ref) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState('agenda');
     const [savs, setSavs] = useState([]);
@@ -323,6 +323,14 @@ export default function AgendaPanel({ onDataReady }) {
             onDataReady({ allApts, tasks });
         }
     }, [teamAptsCache, tasks, onDataReady]);
+
+    // Expose openTab to parent via ref
+    useImperativeHandle(ref, () => ({
+        openTab(tab) {
+            setActiveTab(tab);
+            setIsExpanded(true);
+        },
+    }));
 
     const toggleTab = (tab) => {
         if (isExpanded && activeTab === tab) {
@@ -852,4 +860,6 @@ export default function AgendaPanel({ onDataReady }) {
             )}
         </div>
     );
-}
+});
+
+export default AgendaPanel;

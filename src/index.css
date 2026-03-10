@@ -1145,6 +1145,16 @@ body {
   opacity: 0.6;
 }
 
+.notif-item--clickable {
+  cursor: pointer;
+}
+
+.notif-item--clickable:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--accent-light);
+  transform: translateX(2px);
+}
+
 .notif-item__icon {
   font-size: 18px;
   flex-shrink: 0;
