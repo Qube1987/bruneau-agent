@@ -313,8 +313,8 @@ export default function DayView({
                                     top: style.top,
                                     height: isExpanded ? 'auto' : style.height,
                                     minHeight: style.height,
-                                    left: `calc(50px + ${leftPct}% * (100% - 50px) / 100)`,
-                                    width: `calc(${widthPct}% * (100% - 54px) / 100)`,
+                                    left: `calc(50px + (100% - 54px) * ${leftPct / 100})`,
+                                    width: `calc((100% - 54px) * ${widthPct / 100})`,
                                     borderLeftColor: apt._color,
                                     background: `${apt._color}18`,
                                 }}

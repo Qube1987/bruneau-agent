@@ -1395,6 +1395,8 @@ body {
 /* ===== Agenda Panel ===== */
 .agenda-panel {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .agenda-panel__tabs {
@@ -1414,6 +1416,16 @@ body {
 .agenda-panel--expanded {
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
+  max-height: 60vh;
+  overflow: hidden;
+}
+
+.agenda-panel--expanded .agenda-panel__content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .agenda-panel--fullscreen,
@@ -1625,7 +1637,8 @@ body {
 /* ===== Timeline Calendar ===== */
 .agenda-timeline {
   overflow-y: auto;
-  max-height: 45vh;
+  flex: 1;
+  min-height: 0;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
@@ -4169,7 +4182,8 @@ body {
 .dv {
   display: flex;
   flex-direction: column;
-  max-height: 65vh;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   position: relative;
   touch-action: pan-y;
