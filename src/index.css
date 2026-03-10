@@ -3245,6 +3245,53 @@ body {
   background: rgba(255, 107, 107, 0.1);
   border-radius: var(--radius-sm);
 }
+.apt-form__search-indicator {
+  position: absolute;
+  right: 10px;
+  top: 30px;
+  font-size: 14px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.apt-form__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.apt-form__suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  transition: background var(--transition-fast);
+}
+.apt-form__suggestion:last-child { border-bottom: none; }
+.apt-form__suggestion:hover { background: rgba(108,92,231,0.12); }
+.apt-form__suggestion-name {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.apt-form__suggestion-addr {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
 
 /* Undo delete toast */
 .todo-toast {
