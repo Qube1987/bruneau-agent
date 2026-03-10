@@ -12,15 +12,17 @@ import MyDayPanel from './components/MyDayPanel';
 import LoginScreen from './components/LoginScreen';
 
 const SUGGESTIONS = [
-  { icon: '🔧', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
-  { icon: '📋', text: 'Crée une opportunité pour Mme Martin, installation alarme' },
-  { icon: '📊', text: 'Combien de SAV en cours cette semaine ?' },
-  { icon: '🔍', text: 'Cherche le client Lefebvre dans le CRM' },
+  { icon: '\u{1F4C5}', text: 'Résume ma journée' },
+  { icon: '\u{23F0}', text: 'Prochain RDV' },
+  { icon: '\u{1F4A1}', text: 'Je suis libre quand aujourd\'hui ?' },
+  { icon: '\u{1F4CA}', text: 'Résume ma semaine' },
+  { icon: '\u{1F527}', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
+  { icon: '\u{1F50D}', text: 'Cherche le client Lefebvre dans le CRM' },
 ];
 
 export default function App() {
   const { currentUser, loading, signOut } = useAuth();
-  const { messages, isProcessing, sendMessage, respondToAction, clearConversation } = useAgent();
+  const { messages, isProcessing, sendMessage, respondToAction, clearConversation, setAgendaContext } = useAgent();
   const { isListening, currentText, toggleListening, stopListening, getFinalTranscript } = useSpeechRecognition();
   const { speak } = useSpeechSynthesis();
   const [inputText, setInputText] = useState('');
@@ -48,7 +50,15 @@ export default function App() {
     }
   }, []);
 
-  const handleAgendaData = useCallback((data) => setAgendaData(data), []);
+  const handleAgendaData = useCallback((data) => {
+    setAgendaData(data);
+    setAgendaContext({
+      allApts: data.allApts,
+      tasks: data.tasks,
+      userCode: currentUser?.extrabat_code,
+      userName: currentUser?.display_name,
+    });
+  }, [setAgendaContext, currentUser]);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -210,7 +220,7 @@ export default function App() {
       </header>
 
       {/* Agenda Panel */}
-      <AgendaPanel ref={agendaRef} onDataReady={handleAgendaData} />
+      <AgendaPanel ref={agendaRef} onDataReady={handleAgendaData} userCode={currentUser.extrabat_code} userName={currentUser.display_name} />
 
       {/* My Day Overlay */}
       <MyDayPanel

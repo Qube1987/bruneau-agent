@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { supabase, AGENT_FUNCTION_URL, SUPABASE_ANON } from '../lib/supabase';
+import { isSameDay, formatTime, detectConflicts, findFreeSlots, formatSlotTime, generateBriefing } from '../utils/agendaUtils';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://rzxisqsdsiiuwaixnneo.supabase.co';
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/extrabat-proxy`;
@@ -162,10 +163,126 @@ async function tryDirectRdvCreation(text, token) {
  * - { role: 'agent', type: 'thinking' }
  */
 
+/**
+ * Handle local agenda queries directly without calling the AI.
+ * Returns { handled, message } or null if not an agenda query.
+ */
+function tryLocalAgendaQuery(text, agendaContext) {
+    if (!agendaContext) return null;
+    const { allApts, tasks, userCode, userName } = agendaContext;
+    const lower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const now = new Date();
+
+    // Filter user's appointments for today
+    const todayApts = (allApts || [])
+        .filter(a => a._start && isSameDay(a._start, now) &&
+            (!userCode || !a._userCode || String(a._userCode) === String(userCode)))
+        .sort((a, b) => a._start - b._start);
+
+    // "Prochain RDV" / "next appointment"
+    if (/\b(prochain|next)\b.*\b(rdv|rendez|appointment)\b/.test(lower) || /\b(rdv|rendez)\b.*\b(prochain|suivant)\b/.test(lower) || lower === 'prochain rdv') {
+        const next = todayApts.find(a => a._start > now);
+        if (!next) return { handled: true, message: "Pas de prochain rendez-vous aujourd'hui." };
+        let msg = `Prochain RDV : ${next._clientName || next._objet} de ${formatTime(next._start)} a ${formatTime(next._end)}.`;
+        if (next._address) msg += ` Adresse : ${next._address}.`;
+        if (next._phone) msg += ` Tel : ${next._phone}.`;
+        return { handled: true, message: msg };
+    }
+
+    // "Résume ma journée" / "briefing"
+    if (/\b(resum|briefing|journee|ma journ)\b/.test(lower)) {
+        const briefing = generateBriefing(todayApts, tasks || [], userName, null);
+        return { handled: true, message: briefing };
+    }
+
+    // "Résume ma semaine"
+    if (/\b(resum|bilan).*\b(semaine|week)\b/.test(lower)) {
+        const weekStart = new Date(now);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 5);
+
+        const weekApts = (allApts || [])
+            .filter(a => a._start && a._start >= weekStart && a._start < weekEnd &&
+                (!userCode || !a._userCode || String(a._userCode) === String(userCode)))
+            .sort((a, b) => a._start - b._start);
+
+        const days = {};
+        weekApts.forEach(a => {
+            const dayKey = a._start.toLocaleDateString('fr-FR', { weekday: 'long' });
+            if (!days[dayKey]) days[dayKey] = 0;
+            days[dayKey]++;
+        });
+
+        let msg = `Cette semaine : ${weekApts.length} RDV au total. `;
+        for (const [day, count] of Object.entries(days)) {
+            msg += `${day} : ${count} RDV. `;
+        }
+
+        const pendingTasks = (tasks || []).filter(t => t.status !== 'done').length;
+        if (pendingTasks > 0) msg += `${pendingTasks} tache${pendingTasks > 1 ? 's' : ''} en cours.`;
+
+        return { handled: true, message: msg };
+    }
+
+    // "Je suis libre quand" / "créneaux libres"
+    if (/\b(libre|disponible|creneau|dispo)\b/.test(lower)) {
+        // Determine which day
+        let targetDate = now;
+        let dayLabel = "aujourd'hui";
+        if (/demain/.test(lower)) {
+            targetDate = new Date(now);
+            targetDate.setDate(targetDate.getDate() + 1);
+            dayLabel = 'demain';
+        }
+        const dayApts = (allApts || [])
+            .filter(a => a._start && isSameDay(a._start, targetDate) &&
+                (!userCode || !a._userCode || String(a._userCode) === String(userCode)))
+            .sort((a, b) => a._start - b._start);
+
+        const slots = findFreeSlots(dayApts, 8, 18, 30);
+        if (slots.length === 0) return { handled: true, message: `Pas de créneau libre ${dayLabel}.` };
+
+        let msg = `Créneaux libres ${dayLabel} : `;
+        msg += slots.map(s => `${formatSlotTime(s.start)}-${formatSlotTime(s.end)} (${Math.floor(s.minutes / 60)}h${s.minutes % 60 > 0 ? String(s.minutes % 60).padStart(2, '0') : ''})`).join(', ');
+        msg += '.';
+        return { handled: true, message: msg };
+    }
+
+    // "Navigue vers" / "GPS" / "itinéraire"
+    if (/\b(navigue|gps|itineraire|route|aller chez|direction)\b/.test(lower)) {
+        const next = todayApts.find(a => a._start > now) || todayApts[0];
+        if (!next || !next._address) return { handled: true, message: "Pas d'adresse trouvée pour le prochain RDV." };
+        return {
+            handled: true,
+            message: `Navigation vers ${next._clientName || next._objet} : ${next._address}`,
+            navigateTo: next._address,
+        };
+    }
+
+    // "Conflits" / "chevauchement"
+    if (/\b(conflit|chevauch|overlap)\b/.test(lower)) {
+        const conflicts = detectConflicts(todayApts);
+        if (conflicts.length === 0) return { handled: true, message: "Aucun conflit horaire aujourd'hui." };
+        let msg = `${conflicts.length} conflit${conflicts.length > 1 ? 's' : ''} détecté${conflicts.length > 1 ? 's' : ''} : `;
+        msg += conflicts.map(c => `${formatTime(c.apt1._start)} ${c.apt1._clientName || c.apt1._objet} chevauche ${formatTime(c.apt2._start)} ${c.apt2._clientName || c.apt2._objet} (${c.overlapMinutes}min)`).join(' | ');
+        return { handled: true, message: msg };
+    }
+
+    return null;
+}
+
 export function useAgent() {
     const [messages, setMessages] = useState([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const conversationRef = useRef([]);
+    const agendaContextRef = useRef(null);
+
+    // Allow external components to set agenda context for local queries
+    const setAgendaContext = useCallback((ctx) => {
+        agendaContextRef.current = ctx;
+    }, []);
 
     const addMessage = useCallback((msg) => {
         setMessages(prev => [...prev.filter(m => m.type !== 'thinking'), msg]);
@@ -219,6 +336,25 @@ export function useAgent() {
         showThinking();
 
         try {
+            // === LOCAL AGENDA QUERIES: instant response without AI ===
+            const localResult = tryLocalAgendaQuery(text, agendaContextRef.current);
+            if (localResult?.handled) {
+                removeThinking();
+                const agentMsg = {
+                    role: 'agent',
+                    content: localResult.message,
+                    id: Date.now().toString(),
+                };
+                addMessage(agentMsg);
+                conversationRef.current.push({ role: 'assistant', content: localResult.message });
+                // If navigation requested, open geo URI
+                if (localResult.navigateTo) {
+                    window.open(`geo:0,0?q=${encodeURIComponent(localResult.navigateTo)}`, '_self');
+                }
+                setIsProcessing(false);
+                return;
+            }
+
             // === DIRECT RDV CREATION: bypass Gemini entirely for appointment requests ===
             const { data: { session: rdvSession } } = await supabase.auth.getSession();
             const rdvToken = rdvSession?.access_token || SUPABASE_ANON;
@@ -436,5 +572,6 @@ export function useAgent() {
         sendMessage,
         respondToAction,
         clearConversation,
+        setAgendaContext,
     };
 }

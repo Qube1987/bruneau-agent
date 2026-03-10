@@ -4163,3 +4163,756 @@ body {
   background: var(--success);
   box-shadow: 0 0 6px var(--success);
 }
+
+/* ===== Day View (Mobile-First) ===== */
+
+.dv {
+  display: flex;
+  flex-direction: column;
+  max-height: 65vh;
+  overflow: hidden;
+  position: relative;
+  touch-action: pan-y;
+}
+
+/* Mini Calendar Strip */
+.dv-minical {
+  display: flex;
+  gap: 4px;
+  padding: var(--space-sm) var(--space-xs);
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.dv-minical__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  position: relative;
+  min-width: 42px;
+}
+
+.dv-minical__day:hover {
+  background: var(--bg-glass-hover);
+}
+
+.dv-minical__day--selected {
+  background: var(--accent) !important;
+  color: white !important;
+  border-color: var(--accent);
+}
+
+.dv-minical__day--today:not(.dv-minical__day--selected) {
+  border-color: var(--accent);
+  color: var(--accent-light);
+}
+
+.dv-minical__dayname {
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.dv-minical__daynum {
+  font-size: var(--font-md);
+  font-weight: 700;
+}
+
+.dv-minical__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--accent-light);
+  position: absolute;
+  bottom: 3px;
+}
+
+.dv-minical__day--selected .dv-minical__dot {
+  background: white;
+}
+
+/* Day Header */
+.dv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  flex-shrink: 0;
+}
+
+.dv-header__date {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.dv-header__stats {
+  display: flex;
+  gap: var(--space-sm);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.dv-header__overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Weather */
+.dv-weather {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--bg-glass);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.dv-weather__icon {
+  font-size: var(--font-lg);
+}
+
+.dv-weather__temp {
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Conflict warnings */
+.dv-conflicts {
+  padding: 0 var(--space-md) var(--space-xs);
+  flex-shrink: 0;
+}
+
+.dv-conflict {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--danger);
+  margin-bottom: 4px;
+  animation: fadeInUp 0.3s ease;
+}
+
+.dv-conflict__icon {
+  font-size: var(--font-md);
+}
+
+/* Next appointment card */
+.dv-next {
+  margin: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-glass);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  flex-shrink: 0;
+}
+
+.dv-next__label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-light);
+  margin-bottom: 4px;
+}
+
+.dv-next__title {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dv-next__time {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.dv-next__links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.dv-next__travel {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 206, 201, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--success);
+}
+
+.dv-next__travel--tight {
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--danger);
+}
+
+.dv-next__travel-warn {
+  font-weight: 700;
+}
+
+/* Timeline */
+.dv-timeline {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--space-sm);
+}
+
+.dv-timeline__inner {
+  position: relative;
+  min-height: 100%;
+}
+
+.dv-timeline__hour {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-start;
+}
+
+.dv-timeline__hour-label {
+  width: 44px;
+  flex-shrink: 0;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: 6px;
+  transform: translateY(-6px);
+}
+
+.dv-timeline__hour-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Now indicator */
+.dv-timeline__now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.dv-timeline__now-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+  margin-left: 37px;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px var(--danger-glow);
+}
+
+.dv-timeline__now-line {
+  flex: 1;
+  height: 2px;
+  background: var(--danger);
+}
+
+.dv-timeline__now-time {
+  font-size: 0.65rem;
+  color: var(--danger);
+  font-weight: 700;
+  padding-left: 4px;
+  flex-shrink: 0;
+}
+
+/* Appointment blocks */
+.dv-apt {
+  position: absolute;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
+  padding: 6px 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  z-index: 2;
+}
+
+.dv-apt:active {
+  transform: scale(0.98);
+}
+
+.dv-apt--expanded {
+  z-index: 5;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  overflow: visible;
+}
+
+.dv-apt--conflict {
+  border-left-color: var(--danger) !important;
+  animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: inset 0 0 0 1px rgba(255, 107, 107, 0.4); }
+}
+
+.dv-apt--current {
+  border-left-width: 4px;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.dv-apt--past {
+  opacity: 0.4;
+}
+
+.dv-apt__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dv-apt__time {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dv-apt__live {
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: white;
+  border-radius: 8px;
+  font-weight: 700;
+  animation: pulse-dot 2s infinite;
+}
+
+.dv-apt__title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-apt__subtitle {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-apt__details {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: fadeInUp 0.2s ease;
+}
+
+.dv-apt__user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.dv-apt__user-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+/* Free slot indicators */
+.dv-freeslot {
+  position: absolute;
+  left: 50px;
+  right: 8px;
+  border: 1px dashed rgba(108, 92, 231, 0.2);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  z-index: 1;
+}
+
+.dv-freeslot:hover {
+  background: rgba(108, 92, 231, 0.05);
+  border-color: var(--accent);
+}
+
+.dv-freeslot__label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* Day View Links */
+.dv-link {
+  font-size: var(--font-xs);
+  color: var(--accent-light);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dv-link:hover {
+  color: var(--accent);
+}
+
+.dv-link-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dv-link--sms {
+  padding: 2px 8px;
+  background: rgba(0, 206, 201, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--success);
+  text-decoration: none;
+}
+
+/* Tasks section */
+.dv-tasks {
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.dv-tasks__title {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.dv-tasks__title--danger {
+  color: var(--danger);
+}
+
+.dv-task {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 6px 0;
+}
+
+.dv-task--overdue {
+  color: var(--danger);
+}
+
+.dv-task__check {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--accent);
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.dv-task--overdue .dv-task__check {
+  border-color: var(--danger);
+}
+
+.dv-task__check:hover {
+  background: var(--accent-glow);
+}
+
+.dv-task__text {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+
+/* Empty state */
+.dv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.dv-empty__icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-sm);
+}
+
+/* FAB */
+.dv-fab {
+  position: absolute;
+  bottom: var(--space-md);
+  right: var(--space-md);
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  border: none;
+  color: white;
+  font-size: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--accent-glow);
+  z-index: 20;
+  transition: all var(--transition-fast);
+}
+
+.dv-fab:hover {
+  transform: scale(1.1);
+}
+
+.dv-fab:active {
+  transform: scale(0.95);
+}
+
+/* ===== View mode toggle ===== */
+.agenda-panel__view-toggle {
+  padding: 4px 10px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  transition: all var(--transition-fast);
+  margin-right: 4px;
+}
+
+.agenda-panel__view-toggle--active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* ===== Pull-to-refresh ===== */
+.agenda-panel__refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  font-size: var(--font-sm);
+  color: var(--accent-light);
+}
+
+.agenda-panel__refresh-spinner {
+  animation: spin 1s linear infinite;
+  font-size: var(--font-lg);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ===== MyDay Enhancements ===== */
+
+.myday-weather {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-glass);
+  border-bottom: 1px solid var(--border);
+}
+
+.myday-weather__icon {
+  font-size: var(--font-xl);
+}
+
+.myday-weather__temp {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.myday-weather__desc {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.myday-weather__wind {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Briefing */
+.myday-briefing {
+  padding: var(--space-sm) var(--space-md);
+  margin: var(--space-sm) var(--space-md) 0;
+  background: linear-gradient(135deg, rgba(108, 92, 231, 0.1), rgba(162, 155, 254, 0.05));
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+}
+
+.myday-briefing__label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-light);
+  margin-bottom: 4px;
+}
+
+.myday-briefing__text {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* Travel between appointments */
+.myday-travel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 52px;
+  font-size: var(--font-xs);
+  color: var(--success);
+}
+
+.myday-travel--tight {
+  color: var(--danger);
+}
+
+.myday-travel__icon {
+  font-size: var(--font-sm);
+}
+
+.myday-travel__warn {
+  font-weight: 700;
+}
+
+/* Conflict display */
+.myday-conflict {
+  padding: 6px var(--space-md);
+  font-size: var(--font-xs);
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.05);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+}
+
+.myday-conflict__overlap {
+  color: var(--text-muted);
+}
+
+/* Free slots */
+.myday-freeslots {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.myday-freeslot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 14px;
+  background: var(--bg-glass);
+  border: 1px dashed var(--border-accent);
+  border-radius: var(--radius-sm);
+}
+
+.myday-freeslot__time {
+  font-size: var(--font-xs);
+  color: var(--accent-light);
+  font-weight: 600;
+}
+
+.myday-freeslot__dur {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* 5-day forecast */
+.myday-forecast {
+  display: flex;
+  gap: 4px;
+  justify-content: space-between;
+}
+
+.myday-forecast__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--bg-glass);
+  border-radius: var(--radius-sm);
+  flex: 1;
+}
+
+.myday-forecast__name {
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: capitalize;
+  color: var(--text-secondary);
+}
+
+.myday-forecast__icon {
+  font-size: var(--font-lg);
+}
+
+.myday-forecast__temp {
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Next appointment travel in myday */
+.myday-next__travel {
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: rgba(0, 206, 201, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--success);
+}
+
+.myday-next__travel--tight {
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--danger);
+}
