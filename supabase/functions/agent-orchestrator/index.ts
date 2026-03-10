@@ -102,7 +102,9 @@ AGENDA / RENDEZ-VOUS :
 - Pour les RDV, le format de date est TOUJOURS "YYYY-MM-DD HH:MM:SS" (avec espace, PAS de T)
 - Si l'utilisateur ne précise pas la durée, mettre 1h par défaut (fin = debut + 1h)
 - Si l'utilisateur ne précise pas de nom, c'est pour Quentin (défaut)
+- IMPORTANT : Si le RDV concerne un client (ex: "rdv chez M. Dupont", "installation chez Le Bras"), PASSE son nom dans le paramètre client_name pour lier le rdv au client dans Extrabat. Si le rdv est personnel (coiffeur, médecin...), ne passe pas client_name.
 - Exemple : si l'utilisateur dit "ajoute un rdv coiffeur mardi à 16h" → appeler create_appointment({objet: "Coiffeur", debut: "2026-03-10 16:00:00", fin: "2026-03-10 17:00:00"})
+- Exemple client : "rdv chez Dupont mardi 10h" → create_appointment({objet: "RDV client", debut: "2026-03-10 10:00:00", fin: "2026-03-10 11:00:00", client_name: "Dupont"})
 
 RECHERCHE DE CLIENTS :
 - search_client cherche d'abord dans la base Supabase locale, puis dans Extrabat si pas assez de résultats
@@ -366,7 +368,7 @@ const TOOLS = [
     },
     {
         name: "create_appointment",
-        description: "Créer un rendez-vous dans l'agenda Extrabat. Appeler DIRECTEMENT cet outil (pas besoin de ask_user_confirmation). Calcule les dates à partir du contexte fourni.",
+        description: "Créer un rendez-vous dans l'agenda Extrabat. Appeler DIRECTEMENT cet outil (pas besoin de ask_user_confirmation). Calcule les dates à partir du contexte fourni. Si le rdv est chez un client connu, passe son nom dans client_name pour le lier dans Extrabat.",
         parameters: {
             type: "OBJECT",
             properties: {
@@ -375,6 +377,7 @@ const TOOLS = [
                 debut: { type: "STRING", description: "Date et heure de début au format YYYY-MM-DD HH:MM:SS" },
                 fin: { type: "STRING", description: "Date et heure de fin au format YYYY-MM-DD HH:MM:SS" },
                 journee: { type: "BOOLEAN", description: "Si true, le rdv dure toute la journée (défaut: false)" },
+                client_name: { type: "STRING", description: "Nom du client pour lier le rdv au client Extrabat (optionnel mais recommandé si c'est un rdv client)" },
             },
             required: ["objet", "debut", "fin"],
         },
@@ -1396,11 +1399,64 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const startDate = parseDate(args.debut);
             const endDate = args.fin ? parseDate(args.fin) : new Date(startDate.getTime() + 60 * 60 * 1000); // default 1h
 
-            console.log(`Creating appointment via extrabat-proxy: objet="${args.objet}", start=${startDate.toISOString()}, end=${endDate.toISOString()}, user=${extrabatCode} (${userName})`);
+            // Try to find the Extrabat client ID to link the RDV to the client
+            let extrabatClientId: number | null = null;
+            let supabaseClientId: string | null = null;
+            const rdvClientName = args.client_name || "";
+            if (rdvClientName) {
+                // 1) Search in local Supabase clients first
+                const nameWords = rdvClientName.split(/\s+/).filter((w: string) => w.length > 1);
+                const orConds = nameWords.map((w: string) => `nom.ilike.%${w}%,prenom.ilike.%${w}%`).join(",");
+                const { data: sbClients } = await db.from("clients")
+                    .select("id, extrabat_id, nom, prenom")
+                    .or(orConds)
+                    .limit(5);
 
-            // Call extrabat-proxy with the SAME format as the SAV app's useExtrabat.createAppointment
+                if (sbClients && sbClients.length > 0) {
+                    // Prefer exact-ish match
+                    const match = sbClients.find((c: any) => {
+                        const fullName = `${c.prenom || ""} ${c.nom || ""}`.trim().toLowerCase();
+                        return fullName.includes(rdvClientName.toLowerCase()) || rdvClientName.toLowerCase().includes(c.nom?.toLowerCase() || "");
+                    }) || sbClients[0];
+                    extrabatClientId = match.extrabat_id || null;
+                    supabaseClientId = match.id || null;
+                    console.log(`Found client in Supabase: ${match.nom} (extrabat_id=${extrabatClientId}, supabase_id=${supabaseClientId})`);
+                }
+
+                // 2) If no extrabat_id found, search Extrabat directly
+                if (!extrabatClientId) {
+                    try {
+                        const extrabatSearchResults = await searchExtrabat(rdvClientName);
+                        if (extrabatSearchResults.length > 0) {
+                            extrabatClientId = extrabatSearchResults[0].extrabat_id;
+                            console.log(`Found client in Extrabat: ${extrabatSearchResults[0].nom} (extrabat_id=${extrabatClientId})`);
+                        }
+                    } catch (e) {
+                        console.warn("Extrabat client search failed:", e);
+                    }
+                }
+            }
+
+            console.log(`Creating appointment via extrabat-proxy: objet="${args.objet}", start=${startDate.toISOString()}, end=${endDate.toISOString()}, user=${extrabatCode} (${userName}), clientId=${extrabatClientId}`);
+
+            // Call extrabat-proxy
             const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
             const supabaseKey2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+            const proxyBody: any = {
+                technicianCodes: [extrabatCode],
+                interventionData: {
+                    clientName: rdvClientName || args.objet,
+                    systemType: "rdv",
+                    problemDesc: args.objet,
+                    startedAt: startDate.toISOString(),
+                    endedAt: endDate.toISOString(),
+                },
+            };
+            // Link to client in Extrabat if found
+            if (extrabatClientId) {
+                proxyBody.clientId = extrabatClientId;
+            }
 
             const proxyResponse2 = await fetch(`${supabaseUrl2}/functions/v1/extrabat-proxy`, {
                 method: "POST",
@@ -1408,16 +1464,7 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${supabaseKey2}`,
                 },
-                body: JSON.stringify({
-                    technicianCodes: [extrabatCode],
-                    interventionData: {
-                        clientName: args.objet,
-                        systemType: "",
-                        problemDesc: args.objet,
-                        startedAt: startDate.toISOString(),
-                        endedAt: endDate.toISOString(),
-                    },
-                }),
+                body: JSON.stringify(proxyBody),
             });
 
             const proxyResult = await proxyResponse2.json();
@@ -1431,9 +1478,10 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             const rdvExtrabatId = proxyResult.data?.id || null;
             if (rdvExtrabatId) {
                 try {
-                    const extrabatCode = getExtrabatCode(args.user_name);
                     await db.from("rdv_logs").upsert({
                         extrabat_rdv_id: Number(rdvExtrabatId),
+                        extrabat_client_id: extrabatClientId || null,
+                        client_id: supabaseClientId || null,
                         objet: args.objet,
                         started_at: startDate.toISOString(),
                         ended_at: endDate.toISOString(),
@@ -1446,9 +1494,9 @@ async function executeTool(toolName: string, args: any): Promise<any> {
 
             return {
                 success: true,
-                message: `Rendez-vous "${args.objet}" créé pour ${userName}`,
+                message: `Rendez-vous "${args.objet}" créé pour ${userName}${extrabatClientId ? ` (lié au client ${rdvClientName})` : ""}`,
                 appointment_id: rdvExtrabatId || proxyResult.data,
-                details: { objet: args.objet, debut: startDate.toISOString(), fin: endDate.toISOString(), user: userName },
+                details: { objet: args.objet, debut: startDate.toISOString(), fin: endDate.toISOString(), user: userName, client_linked: !!extrabatClientId },
             };
         }
 
