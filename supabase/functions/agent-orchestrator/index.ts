@@ -1427,10 +1427,27 @@ async function executeTool(toolName: string, args: any): Promise<any> {
                 return { error: proxyResult.error || "Erreur création RDV Extrabat" };
             }
 
+            // Log RDV in rdv_logs for traceability (upsert to avoid duplicates)
+            const rdvExtrabatId = proxyResult.data?.id || null;
+            if (rdvExtrabatId) {
+                try {
+                    const extrabatCode = getExtrabatCode(args.user_name);
+                    await db.from("rdv_logs").upsert({
+                        extrabat_rdv_id: Number(rdvExtrabatId),
+                        objet: args.objet,
+                        started_at: startDate.toISOString(),
+                        ended_at: endDate.toISOString(),
+                        created_by: extrabatCode,
+                    }, { onConflict: "extrabat_rdv_id" });
+                } catch (logErr) {
+                    console.warn("rdv_logs upsert failed:", logErr);
+                }
+            }
+
             return {
                 success: true,
                 message: `Rendez-vous "${args.objet}" créé pour ${userName}`,
-                appointment_id: proxyResult.data?.id || proxyResult.data,
+                appointment_id: rdvExtrabatId || proxyResult.data,
                 details: { objet: args.objet, debut: startDate.toISOString(), fin: endDate.toISOString(), user: userName },
             };
         }

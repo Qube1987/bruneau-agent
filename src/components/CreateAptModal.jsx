@@ -214,19 +214,27 @@ export default function CreateAptModal({ onClose, userCode }) {
 
             const data = await res.json();
             if (data.success) {
-                // 3) Log RDV in Supabase for local traceability
-                if (sbClientId) {
-                    await supabase.from('rdv_logs').insert({
-                        client_id: sbClientId,
-                        extrabat_client_id: extrabatClientId,
-                        extrabat_rdv_id: data.data?.id || data.id || null,
-                        objet: objet.trim() || clientName.trim(),
-                        started_at: startedAt,
-                        ended_at: endedAt,
-                        created_by: userCode || null,
-                    }).then(({ error: logErr }) => {
-                        if (logErr) console.warn('[CreateApt] rdv_logs insert failed (table may not exist yet):', logErr.message);
-                    });
+                // 3) Log RDV in Supabase for local traceability (upsert to avoid duplicates)
+                const rdvId = data.data?.id || data.id || null;
+                const logRow = {
+                    client_id: sbClientId || null,
+                    extrabat_client_id: extrabatClientId || null,
+                    extrabat_rdv_id: rdvId ? Number(rdvId) : null,
+                    objet: objet.trim() || clientName.trim(),
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                    created_by: userCode || null,
+                };
+                if (logRow.extrabat_rdv_id) {
+                    await supabase.from('rdv_logs').upsert(logRow, { onConflict: 'extrabat_rdv_id' })
+                        .then(({ error: logErr }) => {
+                            if (logErr) console.warn('[CreateApt] rdv_logs upsert failed:', logErr.message);
+                        });
+                } else {
+                    await supabase.from('rdv_logs').insert(logRow)
+                        .then(({ error: logErr }) => {
+                            if (logErr) console.warn('[CreateApt] rdv_logs insert failed:', logErr.message);
+                        });
                 }
                 onClose(true);
             } else {
