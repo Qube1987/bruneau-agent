@@ -48,17 +48,19 @@ function formatDueDate(d) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
     const taskDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+    const timeSuffix = hasTime ? ` ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}` : '';
 
-    if (taskDay.getTime() === today.getTime()) return "Aujourd'hui";
-    if (taskDay.getTime() === tomorrow.getTime()) return 'Demain';
+    if (taskDay.getTime() === today.getTime()) return "Aujourd'hui" + timeSuffix;
+    if (taskDay.getTime() === tomorrow.getTime()) return 'Demain' + timeSuffix;
     if (taskDay < today) return 'En retard';
 
     const diff = Math.ceil((taskDay - today) / (1000 * 60 * 60 * 24));
     if (diff <= 7) {
         const days = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-        return days[date.getDay()];
+        return days[date.getDay()] + timeSuffix;
     }
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + timeSuffix;
 }
 
 function formatReminderLabel(reminderAt, dueDate) {
@@ -92,6 +94,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
     const [newPriority, setNewPriority] = useState('medium');
     const [newCategory, setNewCategory] = useState('general');
     const [newDueDate, setNewDueDate] = useState('');
+    const [newDueTime, setNewDueTime] = useState('');
     const [newReminderType, setNewReminderType] = useState('');
     const [newReminderCustom, setNewReminderCustom] = useState('');
     const [completingIds, setCompletingIds] = useState(new Set());
@@ -104,6 +107,14 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         }
     }, [showAddForm]);
 
+    const buildDueDateISO = (dateStr, timeStr) => {
+        if (!dateStr) return null;
+        if (timeStr) {
+            return new Date(`${dateStr}T${timeStr}`).toISOString();
+        }
+        return new Date(dateStr).toISOString();
+    };
+
     const computeNewReminder = () => {
         if (!newReminderType || !newDueDate) return null;
         const shortcut = REMINDER_SHORTCUTS.find(s => s.label === newReminderType);
@@ -111,7 +122,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         if (shortcut.offset === 'custom') {
             return newReminderCustom ? new Date(newReminderCustom).toISOString() : null;
         }
-        const dueDateISO = new Date(newDueDate).toISOString();
+        const dueDateISO = buildDueDateISO(newDueDate, newDueTime);
         return computeReminderAt(dueDateISO, shortcut);
     };
 
@@ -126,7 +137,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
             description: newDescription.trim() || '',
             priority: newPriority,
             category: newCategory,
-            due_date: newDueDate ? new Date(newDueDate).toISOString() : null,
+            due_date: buildDueDateISO(newDueDate, newDueTime),
             reminder_at,
             reminder_sent: false,
             status: 'pending',
@@ -139,6 +150,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         setNewPriority('medium');
         setNewCategory('general');
         setNewDueDate('');
+        setNewDueTime('');
         setNewReminderType('');
         setNewReminderCustom('');
         setShowAddForm(false);
@@ -296,6 +308,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                         <div className="todo-add-form__date-wrapper">
                             <label className="todo-add-form__date-label">📅 Échéance</label>
                             <input className="todo-add-form__date" type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} />
+                            <input className="todo-add-form__time" type="time" value={newDueTime} onChange={e => setNewDueTime(e.target.value)} disabled={!newDueDate} title={!newDueDate ? 'Choisissez d\'abord une date' : 'Heure (optionnel)'} />
                         </div>
                         <div className="todo-add-form__date-wrapper">
                             <label className="todo-add-form__date-label">🔔 Rappel</label>
@@ -458,18 +471,54 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                                 </div>
                             </div>
 
-                            {/* Due date */}
+                            {/* Due date + time */}
                             <div className="todo-modal__field">
                                 <label className="todo-modal__label">📅 Échéance</label>
-                                <input
-                                    className="todo-modal__input"
-                                    type="date"
-                                    value={editingTask.due_date ? editingTask.due_date.split('T')[0] : ''}
-                                    onChange={e => {
-                                        const val = e.target.value ? new Date(e.target.value).toISOString() : null;
-                                        setEditingTask(prev => ({ ...prev, due_date: val }));
-                                    }}
-                                />
+                                <div className="todo-modal__row">
+                                    <input
+                                        className="todo-modal__input"
+                                        type="date"
+                                        value={editingTask.due_date ? editingTask.due_date.split('T')[0] : ''}
+                                        onChange={e => {
+                                            if (!e.target.value) {
+                                                setEditingTask(prev => ({ ...prev, due_date: null }));
+                                                return;
+                                            }
+                                            // Preserve existing time if any
+                                            const existingDate = editingTask.due_date ? new Date(editingTask.due_date) : null;
+                                            const newDate = new Date(e.target.value);
+                                            if (existingDate && (existingDate.getHours() !== 0 || existingDate.getMinutes() !== 0)) {
+                                                newDate.setHours(existingDate.getHours(), existingDate.getMinutes(), 0, 0);
+                                            }
+                                            setEditingTask(prev => ({ ...prev, due_date: newDate.toISOString() }));
+                                        }}
+                                        style={{ flex: 1 }}
+                                    />
+                                    <input
+                                        className="todo-modal__input"
+                                        type="time"
+                                        value={editingTask.due_date ? (() => {
+                                            const d = new Date(editingTask.due_date);
+                                            return (d.getHours() !== 0 || d.getMinutes() !== 0)
+                                                ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+                                                : '';
+                                        })() : ''}
+                                        onChange={e => {
+                                            if (!editingTask.due_date) return;
+                                            const base = new Date(editingTask.due_date);
+                                            if (e.target.value) {
+                                                const [h, m] = e.target.value.split(':').map(Number);
+                                                base.setHours(h, m, 0, 0);
+                                            } else {
+                                                base.setHours(0, 0, 0, 0);
+                                            }
+                                            setEditingTask(prev => ({ ...prev, due_date: base.toISOString() }));
+                                        }}
+                                        disabled={!editingTask.due_date}
+                                        title={!editingTask.due_date ? 'Choisissez d\'abord une date' : 'Heure (optionnel)'}
+                                        style={{ width: '110px' }}
+                                    />
+                                </div>
                             </div>
 
                             {/* Reminder */}

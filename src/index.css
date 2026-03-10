@@ -2437,11 +2437,18 @@ body {
 }
 
 .todo-add-form__date-wrapper .todo-add-form__date,
-.todo-add-form__date-wrapper .todo-add-form__select {
+.todo-add-form__date-wrapper .todo-add-form__select,
+.todo-add-form__date-wrapper .todo-add-form__time {
   border: none;
   padding: 2px 4px;
   font-size: var(--font-xs);
   background: transparent;
+}
+
+.todo-add-form__time {
+  color-scheme: dark;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
 }
 
 /* ===== Todo Edit Modal ===== */
