@@ -3259,12 +3259,12 @@ body {
   left: 0;
   right: 0;
   z-index: 20;
-  background: var(--bg-card);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   max-height: 180px;
   overflow-y: auto;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
 }
 .apt-form__suggestion {
   display: flex;

@@ -45,6 +45,7 @@ export default function CreateAptModal({ onClose, userCode }) {
     const [searching, setSearching] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const debounceRef = useRef(null);
+    const skipSearchRef = useRef(false);
     const nameInputRef = useRef(null);
 
     const canSubmit = dateStart && dateEnd && (clientName.trim() || objet.trim());
@@ -58,6 +59,7 @@ export default function CreateAptModal({ onClose, userCode }) {
     // ── Client search with debounce ──
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
+        if (skipSearchRef.current) { skipSearchRef.current = false; return; }
         const q = clientName.trim();
         if (q.length < 2) { setSuggestions([]); return; }
 
@@ -119,9 +121,11 @@ export default function CreateAptModal({ onClose, userCode }) {
     }, [clientName]);
 
     const selectClient = (client) => {
+        skipSearchRef.current = true;
         setClientName(client.name);
         if (client.address) setAddress(client.address);
         if (client.extrabatId) setClientId(client.extrabatId);
+        setSuggestions([]);
         setShowSuggestions(false);
     };
 
