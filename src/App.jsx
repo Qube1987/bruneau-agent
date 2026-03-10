@@ -26,7 +26,7 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [showMyDay, setShowMyDay] = useState(false);
   const [showRdvConfirm, setShowRdvConfirm] = useState(false);
-  const [agendaData, setAgendaData] = useState({ allApts: [], tasks: [] });
+  const [agendaData, setAgendaData] = useState({ allApts: [], tasks: [], setTasks: null });
   const chatRef = useRef(null);
   const inputRef = useRef(null);
   const agendaRef = useRef(null);
@@ -218,6 +218,7 @@ export default function App() {
         onClose={() => setShowMyDay(false)}
         allApts={agendaData.allApts}
         tasks={agendaData.tasks}
+        setTasks={agendaData.setTasks}
         userCode={currentUser.extrabat_code}
         userName={currentUser.display_name}
       />

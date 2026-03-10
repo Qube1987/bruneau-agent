@@ -46,7 +46,7 @@ function isSameDay(d1, d2) {
         d1.getDate() === d2.getDate();
 }
 
-export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode, userName }) {
+export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks, userCode, userName }) {
     const [dayOffset, setDayOffset] = useState(0);
 
     if (!visible) return null;
@@ -72,8 +72,21 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
     // Find upcoming (next) appointment — only relevant for today
     const upcomingApt = isToday ? dayApts.find(a => a._start > now) : dayApts[0];
 
-    // Tasks due on selected day
-    const dayTasks = tasks.filter(t => t.status !== 'done' && t.due_date && isSameDay(new Date(t.due_date), selectedDate));
+    // Tasks due on selected day OR flagged for My Day
+    const todayStr = new Date().toISOString().split('T')[0];
+    const dayTasks = tasks.filter(t => {
+        if (t.status === 'done') return false;
+        const dueMatch = t.due_date && isSameDay(new Date(t.due_date), selectedDate);
+        const myDayMatch = isToday && t.my_day_date === todayStr;
+        return dueMatch || myDayMatch;
+    });
+    // Deduplicate (a task could match both due and my_day)
+    const dayTaskIds = new Set();
+    const uniqueDayTasks = dayTasks.filter(t => {
+        if (dayTaskIds.has(t.id)) return false;
+        dayTaskIds.add(t.id);
+        return true;
+    });
     const overdueTasks = isToday ? tasks.filter(t => isOverdue(t)) : [];
 
     // Greeting based on time of day (only for today)
@@ -85,12 +98,16 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
 
     const dayName = selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-    // Toggle task completion
+    // Toggle task completion (update shared state + DB)
     const toggleTask = async (task) => {
         const newStatus = task.status === 'done' ? 'pending' : 'done';
+        const completedAt = newStatus === 'done' ? new Date().toISOString() : null;
+        if (setTasks) {
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus, completed_at: completedAt } : t));
+        }
         await supabase.from('tasks').update({
             status: newStatus,
-            completed_at: newStatus === 'done' ? new Date().toISOString() : null,
+            completed_at: completedAt,
         }).eq('id', task.id);
     };
 
@@ -122,7 +139,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
                         <span className="myday-stat__label">RDV</span>
                     </div>
                     <div className="myday-stat">
-                        <span className="myday-stat__num">{dayTasks.length + overdueTasks.length}</span>
+                        <span className="myday-stat__num">{uniqueDayTasks.length + overdueTasks.length}</span>
                         <span className="myday-stat__label">Tâches</span>
                     </div>
                     {overdueTasks.length > 0 && (
@@ -200,10 +217,10 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
                     )}
 
                     {/* Day's tasks */}
-                    {dayTasks.length > 0 && (
+                    {uniqueDayTasks.length > 0 && (
                         <div className="myday-section">
                             <div className="myday-section-title">✅ Tâches du jour</div>
-                            {dayTasks.map(task => (
+                            {uniqueDayTasks.map(task => (
                                 <div key={task.id} className="myday-task">
                                     <button className="todo-checkbox" onClick={() => toggleTask(task)} style={{ borderColor: '#6c5ce7' }} />
                                     <div className="myday-task__title">{task.title}</div>
@@ -213,7 +230,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, userCode,
                     )}
 
                     {/* Empty state */}
-                    {dayApts.length === 0 && dayTasks.length === 0 && overdueTasks.length === 0 && (
+                    {dayApts.length === 0 && uniqueDayTasks.length === 0 && overdueTasks.length === 0 && (
                         <div className="myday-empty">
                             <span>🌤️</span>
                             <p>Journée libre ! Profitez-en ou ajoutez des tâches.</p>

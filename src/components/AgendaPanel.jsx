@@ -310,6 +310,24 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady }, ref) {
                 else console.error('Erreur fetch Tasks:', error);
                 setTasksLoaded(true);
             });
+
+        // Realtime subscription for tasks
+        const channel = supabase.channel('tasks-realtime')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks' }, (payload) => {
+                setTasks(prev => {
+                    if (prev.some(t => t.id === payload.new.id)) return prev;
+                    return [payload.new, ...prev];
+                });
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
+                setTasks(prev => prev.map(t => t.id === payload.new.id ? { ...t, ...payload.new } : t));
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload) => {
+                setTasks(prev => prev.filter(t => t.id !== payload.old.id));
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
     }, []);
 
     // ── Expose all cached appointments and tasks for MyDayPanel ──
@@ -320,7 +338,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady }, ref) {
                 const cached = teamAptsCache[code];
                 if (cached) allApts.push(...cached);
             }
-            onDataReady({ allApts, tasks });
+            onDataReady({ allApts, tasks, setTasks });
         }
     }, [teamAptsCache, tasks, onDataReady]);
 

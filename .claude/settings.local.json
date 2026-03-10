@@ -5,7 +5,9 @@
       "Bash(npx supabase db execute --project-ref rzxisqsdsiiuwaixnneo \"SELECT id, client_name, status, system_type, problem_desc, created_at FROM sav_requests WHERE id = ''4021f451-4e28-45ee-9d39-8fbdf62c49e1'';\")",
       "Bash(curl -s \"https://rzxisqsdsiiuwaixnneo.supabase.co/rest/v1/sav_requests?id=eq.4021f451-4e28-45ee-9d39-8fbdf62c49e1&select=id,client_name,status\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6eGlzcXNkc2lpdXdhaXhubmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIyNjcsImV4cCI6MjA4Nzc2ODI2N30._qpwIHvnBCy6SlRugWgUm6ObGT8dOoRkjmaFRuajLhw\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6eGlzcXNkc2lpdXdhaXhubmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIyNjcsImV4cCI6MjA4Nzc2ODI2N30._qpwIHvnBCy6SlRugWgUm6ObGT8dOoRkjmaFRuajLhw\")",
       "Bash(curl -s \"https://rzxisqsdsiiuwaixnneo.supabase.co/rest/v1/sav_requests?select=id,client_name&limit=3\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6eGlzcXNkc2lpdXdhaXhubmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIyNjcsImV4cCI6MjA4Nzc2ODI2N30._qpwIHvnBCy6SlRugWgUm6ObGT8dOoRkjmaFRuajLhw\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6eGlzcXNkc2lpdXdhaXhubmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIyNjcsImV4cCI6MjA4Nzc2ODI2N30._qpwIHvnBCy6SlRugWgUm6ObGT8dOoRkjmaFRuajLhw\")",
-      "Bash(npx supabase functions deploy agent-orchestrator --project-ref rzxisqsdsiiuwaixnneo)"
+      "Bash(npx supabase functions deploy agent-orchestrator --project-ref rzxisqsdsiiuwaixnneo)",
+      "Bash(npx --yes react-scripts build)",
+      "Bash(npx vite build)"
     ]
   }
 }
