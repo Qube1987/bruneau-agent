@@ -513,18 +513,22 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
                                 )}
                             </div>
                         </div>
-                        <button
-                            className={`todo-item__myday ${task.my_day_date ? 'todo-item__myday--active' : ''}`}
-                            onClick={(e) => toggleMyDay(task, e)}
-                            title={task.my_day_date ? 'Retirer de Ma Journée' : 'Ajouter à Ma Journée'}
-                        >
-                            ☀️
-                        </button>
-                        <div className="todo-item__priority" style={{ color: pri.color }} title={pri.name}>
-                            {pri.label}
-                        </div>
-                        <div className="todo-item__actions" onClick={e => e.stopPropagation()}>
-                            <button className="todo-item__delete" onClick={(e) => deleteTask(task.id, e)} title="Supprimer">🗑️</button>
+                        <div className="todo-item__right" onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <button
+                                    className={`todo-item__myday ${task.my_day_date ? 'todo-item__myday--active' : ''}`}
+                                    onClick={(e) => toggleMyDay(task, e)}
+                                    title={task.my_day_date ? 'Retirer de Ma Journée' : 'Ajouter à Ma Journée'}
+                                >
+                                    ☀️
+                                </button>
+                                <div className="todo-item__priority" style={{ color: pri.color }} title={pri.name}>
+                                    {pri.label}
+                                </div>
+                            </div>
+                            <div className="todo-item__actions">
+                                <button className="todo-item__delete" onClick={(e) => deleteTask(task.id, e)} title="Supprimer">🗑️</button>
+                            </div>
                         </div>
                     </div>
                 </SwipeableWrapper>
