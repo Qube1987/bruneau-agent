@@ -2,22 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { PRIORITIES, CATEGORIES, RECURRENCE_OPTIONS, REMINDER_SHORTCUTS } from '../utils/todoConstants';
 import { computeReminderAt, formatDueDate, formatReminderLabel, isOverdue, computeNextDueDate } from '../utils/todoUtils';
-import { useSwipe } from '../hooks/useSwipe';
-
-function SwipeableWrapper({ children, onSwipeLeft, onSwipeRight }) {
-    const { elRef, onTouchStart, onTouchMove, onTouchEnd } = useSwipe({ onSwipeLeft, onSwipeRight });
-    return (
-        <div
-            ref={elRef}
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
-            className="todo-item__swipeable"
-        >
-            {children}
-        </div>
-    );
-}
 
 function Stats({ tasks }) {
     const [open, setOpen] = useState(false);
@@ -460,78 +444,71 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         return (
             <div
                 key={task.id}
-                className={`todo-item__swipe-container ${isManual ? 'todo-item__swipe-container--draggable' : ''}`}
+                className={isManual ? 'todo-item__drag-wrapper' : undefined}
                 draggable={isManual}
                 onDragStart={isManual ? () => handleDragStart(idx) : undefined}
                 onDragEnter={isManual ? () => handleDragEnter(idx) : undefined}
                 onDragEnd={isManual ? handleDragEnd : undefined}
                 onDragOver={isManual ? (e) => e.preventDefault() : undefined}
             >
-                <div className="todo-item__swipe-bg todo-item__swipe-bg--complete">✓</div>
-                <div className="todo-item__swipe-bg todo-item__swipe-bg--delete">🗑️</div>
-                <SwipeableWrapper
-                    onSwipeRight={() => toggleComplete(task, { stopPropagation: () => {} })}
-                    onSwipeLeft={() => deleteTask(task.id)}
+                <div
+                    className={`todo-item ${task.status === 'done' ? 'todo-item--done' : ''} ${overdue ? 'todo-item--overdue' : ''} ${completing ? 'todo-item--completing' : ''}`}
+                    onClick={() => openEditModal(task)}
+                    style={{ cursor: 'pointer' }}
                 >
-                    <div
-                        className={`todo-item ${task.status === 'done' ? 'todo-item--done' : ''} ${overdue ? 'todo-item--overdue' : ''} ${completing ? 'todo-item--completing' : ''}`}
-                        onClick={() => openEditModal(task)}
-                        style={{ cursor: 'pointer' }}
+                    <button
+                        className={`todo-checkbox ${task.status === 'done' ? 'todo-checkbox--checked' : ''}`}
+                        style={{ borderColor: pri.color, background: task.status === 'done' ? pri.color : 'transparent' }}
+                        onClick={(e) => toggleComplete(task, e)}
+                        title={task.status === 'done' ? 'Marquer non terminée' : 'Marquer terminée'}
                     >
-                        <button
-                            className={`todo-checkbox ${task.status === 'done' ? 'todo-checkbox--checked' : ''}`}
-                            style={{ borderColor: pri.color, background: task.status === 'done' ? pri.color : 'transparent' }}
-                            onClick={(e) => toggleComplete(task, e)}
-                            title={task.status === 'done' ? 'Marquer non terminée' : 'Marquer terminée'}
-                        >
-                            {task.status === 'done' && <span className="todo-checkbox__check">✓</span>}
-                        </button>
-                        <div className="todo-item__content">
-                            <div className="todo-item__title">{task.title}</div>
-                            {task.description && <div className="todo-item__description">{task.description}</div>}
-                            <div className="todo-item__meta">
-                                {cat && <span className="todo-item__category">{cat.label} {cat.name}</span>}
-                                {task.due_date && (
-                                    <span className={`todo-item__due ${overdue ? 'todo-item__due--overdue' : ''}`}>
-                                        📅 {formatDueDate(task.due_date)}
-                                    </span>
-                                )}
-                                {task.reminder_at && !task.reminder_sent && (
-                                    <span className="todo-item__reminder">
-                                        🔔 {formatReminderLabel(task.reminder_at, task.due_date)}
-                                    </span>
-                                )}
-                                {task.checklist && task.checklist.length > 0 && (
-                                    <span className="todo-item__checklist-progress">
-                                        ☑ {task.checklist.filter(i => i.done).length}/{task.checklist.length}
-                                    </span>
-                                )}
-                                {task.recurrence && (
-                                    <span className="todo-item__recurrence">
-                                        🔁 {RECURRENCE_OPTIONS.find(r => r.value === task.recurrence)?.label || task.recurrence}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                        <div className="todo-item__right" onClick={e => e.stopPropagation()}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <button
-                                    className={`todo-item__myday ${task.my_day_date ? 'todo-item__myday--active' : ''}`}
-                                    onClick={(e) => toggleMyDay(task, e)}
-                                    title={task.my_day_date ? 'Retirer de Ma Journée' : 'Ajouter à Ma Journée'}
-                                >
-                                    ☀️
-                                </button>
-                                <div className="todo-item__priority" style={{ color: pri.color }} title={pri.name}>
-                                    {pri.label}
-                                </div>
-                            </div>
-                            <div className="todo-item__actions">
-                                <button className="todo-item__delete" onClick={(e) => deleteTask(task.id, e)} title="Supprimer">🗑️</button>
-                            </div>
+                        {task.status === 'done' && <span className="todo-checkbox__check">✓</span>}
+                    </button>
+                    <div className="todo-item__content">
+                        <div className="todo-item__title">{task.title}</div>
+                        {task.description && <div className="todo-item__description">{task.description}</div>}
+                        <div className="todo-item__meta">
+                            {cat && <span className="todo-item__category">{cat.label} {cat.name}</span>}
+                            {task.due_date && (
+                                <span className={`todo-item__due ${overdue ? 'todo-item__due--overdue' : ''}`}>
+                                    📅 {formatDueDate(task.due_date)}
+                                </span>
+                            )}
+                            {task.reminder_at && !task.reminder_sent && (
+                                <span className="todo-item__reminder">
+                                    🔔 {formatReminderLabel(task.reminder_at, task.due_date)}
+                                </span>
+                            )}
+                            {task.checklist && task.checklist.length > 0 && (
+                                <span className="todo-item__checklist-progress">
+                                    ☑ {task.checklist.filter(i => i.done).length}/{task.checklist.length}
+                                </span>
+                            )}
+                            {task.recurrence && (
+                                <span className="todo-item__recurrence">
+                                    🔁 {RECURRENCE_OPTIONS.find(r => r.value === task.recurrence)?.label || task.recurrence}
+                                </span>
+                            )}
                         </div>
                     </div>
-                </SwipeableWrapper>
+                    <div className="todo-item__right" onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                                className={`todo-item__myday ${task.my_day_date ? 'todo-item__myday--active' : ''}`}
+                                onClick={(e) => toggleMyDay(task, e)}
+                                title={task.my_day_date ? 'Retirer de Ma Journée' : 'Ajouter à Ma Journée'}
+                            >
+                                ☀️
+                            </button>
+                            <div className="todo-item__priority" style={{ color: pri.color }} title={pri.name}>
+                                {pri.label}
+                            </div>
+                        </div>
+                        <div className="todo-item__actions">
+                            <button className="todo-item__delete" onClick={(e) => deleteTask(task.id, e)} title="Supprimer">🗑️</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     };

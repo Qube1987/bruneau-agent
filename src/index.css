@@ -2585,38 +2585,6 @@ body {
 }
 
 /* Swipe containers */
-.todo-item__swipe-container {
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--radius-md);
-}
-
-.todo-item__swipeable {
-  position: relative;
-  z-index: 1;
-}
-
-.todo-item__swipe-bg {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  font-size: 1.2rem;
-  padding: 0 20px;
-  font-weight: 700;
-}
-
-.todo-item__swipe-bg--complete {
-  background: rgba(0, 206, 201, 0.2);
-  color: var(--success);
-  justify-content: flex-start;
-}
-
-.todo-item__swipe-bg--delete {
-  background: rgba(255, 107, 107, 0.2);
-  color: var(--danger);
-  justify-content: flex-end;
-}
 
 /* Todo groups */
 .todo-group {
@@ -3428,19 +3396,15 @@ body {
 }
 
 /* Drag & drop manual ordering */
-.todo-item__swipe-container--draggable {
+.todo-item__drag-wrapper {
   cursor: grab;
 }
 
-.todo-item__swipe-container--draggable:active {
+.todo-item__drag-wrapper:active {
   cursor: grabbing;
 }
 
-.todo-item__swipe-container--draggable:global(.dragging) {
-  opacity: 0.4;
-}
-
-.todo-item__swipe-container--draggable[draggable="true"]:hover {
+.todo-item__drag-wrapper[draggable="true"]:hover .todo-item {
   outline: 1px dashed rgba(108, 92, 231, 0.3);
   outline-offset: -1px;
 }
@@ -3520,20 +3484,18 @@ body {
   border: none;
   cursor: pointer;
   font-size: 0.85rem;
-  opacity: 0.3;
+  opacity: 0.25;
   transition: opacity 200ms, transform 200ms;
   padding: 2px 4px;
-  filter: grayscale(1);
 }
 
 .todo-item__myday--active {
   opacity: 1;
-  filter: grayscale(0);
 }
 
 .todo-item__myday:hover {
-  opacity: 0.8;
-  transform: scale(1.2);
+  opacity: 0.7;
+  transform: scale(1.15);
 }
 
 /* ===== My Day Panel (overlay) ===== */
