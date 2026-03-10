@@ -33,12 +33,16 @@ export default function App() {
   // Push notifications
   const { isSubscribed, isSupported, subscribing, subscribe, unsubscribe } = usePushNotifications(currentUser?.id);
 
-  // Check for ?action=rdv-confirm in URL (from push notification click)
+  // Check for ?action= in URL (from push notification click)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('action') === 'rdv-confirm') {
+    const action = params.get('action');
+    if (action === 'rdv-confirm') {
       setShowRdvConfirm(true);
-      // Clean URL
+    } else if (action === 'myday') {
+      setShowMyDay(true);
+    }
+    if (action) {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
