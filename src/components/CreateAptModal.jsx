@@ -38,7 +38,8 @@ export default function CreateAptModal({ onClose, userCode }) {
     const [dateEnd, setDateEnd] = useState(defaultEnd);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
-    const [clientId, setClientId] = useState(null);
+    const [extrabatClientId, setExtrabatClientId] = useState(null);
+    const [supabaseClientId, setSupabaseClientId] = useState(null);
 
     // Client search state
     const [suggestions, setSuggestions] = useState([]);
@@ -85,6 +86,7 @@ export default function CreateAptModal({ onClose, userCode }) {
                             name: [c.prenom, c.nom].filter(Boolean).join(' '),
                             address: addr,
                             extrabatId: c.extrabat_id,
+                            supabaseId: c.id,
                             source: 'supabase',
                         });
                     });
@@ -106,7 +108,17 @@ export default function CreateAptModal({ onClose, userCode }) {
                             name: c.nomraisonsociale || c.nom || '',
                             address: addr,
                             extrabatId: c.id,
+                            supabaseId: null,
                             source: 'extrabat',
+                            // Raw Extrabat fields for upsert into Supabase
+                            _raw: {
+                                nom: c.nomraisonsociale || c.nom || '',
+                                adresse: c.adresse || '',
+                                code_postal: c.codePostal || '',
+                                ville: c.ville || '',
+                                telephone: c.telephone || c.telephones?.[0]?.numero || '',
+                                email: c.email || '',
+                            },
                         });
                     });
                 }
@@ -120,13 +132,46 @@ export default function CreateAptModal({ onClose, userCode }) {
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
     }, [clientName]);
 
+    const selectedRawRef = useRef(null);
+
     const selectClient = (client) => {
         skipSearchRef.current = true;
         setClientName(client.name);
         if (client.address) setAddress(client.address);
-        if (client.extrabatId) setClientId(client.extrabatId);
+        setExtrabatClientId(client.extrabatId || null);
+        setSupabaseClientId(client.supabaseId || null);
+        selectedRawRef.current = client._raw || null;
         setSuggestions([]);
         setShowSuggestions(false);
+    };
+
+    // Ensure the client exists in Supabase (upsert if from Extrabat only)
+    const ensureClientInSupabase = async () => {
+        // Already in Supabase
+        if (supabaseClientId) return supabaseClientId;
+        // No Extrabat ID → nothing to link
+        if (!extrabatClientId) return null;
+
+        // Client from Extrabat only → upsert into Supabase
+        const raw = selectedRawRef.current || {};
+        const row = {
+            extrabat_id: extrabatClientId,
+            nom: raw.nom || clientName.trim(),
+            adresse: raw.adresse || address.trim() || null,
+            code_postal: raw.code_postal || null,
+            ville: raw.ville || null,
+            telephone: raw.telephone || null,
+            email: raw.email || null,
+        };
+
+        const { data, error: upsErr } = await supabase
+            .from('clients')
+            .upsert(row, { onConflict: 'extrabat_id' })
+            .select('id')
+            .single();
+
+        if (upsErr) console.warn('[CreateApt] Client upsert failed:', upsErr);
+        return data?.id || null;
     };
 
     const handleSubmit = async () => {
@@ -139,6 +184,10 @@ export default function CreateAptModal({ onClose, userCode }) {
             const token = session?.access_token;
             if (!token) { setError('Non authentifié'); setSubmitting(false); return; }
 
+            // 1) Ensure client exists in Supabase for traceability
+            const sbClientId = await ensureClientInSupabase();
+
+            // 2) Create RDV in Extrabat (linked to extrabat client ID)
             const startedAt = dateStart.replace('T', ' ') + ':00';
             const endedAt = dateEnd.replace('T', ' ') + ':00';
 
@@ -159,12 +208,26 @@ export default function CreateAptModal({ onClose, userCode }) {
                         endedAt,
                         address: address.trim() || undefined,
                     },
-                    clientId: clientId || undefined,
+                    clientId: extrabatClientId || undefined,
                 }),
             });
 
             const data = await res.json();
             if (data.success) {
+                // 3) Log RDV in Supabase for local traceability
+                if (sbClientId) {
+                    await supabase.from('rdv_logs').insert({
+                        client_id: sbClientId,
+                        extrabat_client_id: extrabatClientId,
+                        extrabat_rdv_id: data.data?.id || data.id || null,
+                        objet: objet.trim() || clientName.trim(),
+                        started_at: startedAt,
+                        ended_at: endedAt,
+                        created_by: userCode || null,
+                    }).then(({ error: logErr }) => {
+                        if (logErr) console.warn('[CreateApt] rdv_logs insert failed (table may not exist yet):', logErr.message);
+                    });
+                }
                 onClose(true);
             } else {
                 setError(data.error || 'Erreur inconnue');
@@ -192,7 +255,7 @@ export default function CreateAptModal({ onClose, userCode }) {
                             type="text"
                             placeholder="Ex: M. Dupont"
                             value={clientName}
-                            onChange={e => { setClientName(e.target.value); setClientId(null); setShowSuggestions(true); }}
+                            onChange={e => { setClientName(e.target.value); setExtrabatClientId(null); setSupabaseClientId(null); selectedRawRef.current = null; setShowSuggestions(true); }}
                             onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
                             autoFocus
                         />
