@@ -418,24 +418,6 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
     const today = new Date();
     const timeLabels = Array.from({ length: TOTAL_HOURS }, (_, i) => HOUR_START + i);
 
-    // ── Pull-to-refresh ──
-    const [refreshing, setRefreshing] = useState(false);
-    const pullStartY = useRef(null);
-    const handlePullStart = (e) => {
-        if (panelRef.current?.scrollTop === 0) pullStartY.current = e.touches[0].clientY;
-    };
-    const handlePullEnd = (e) => {
-        if (pullStartY.current !== null) {
-            const dy = e.changedTouches[0].clientY - pullStartY.current;
-            if (dy > 80) {
-                setRefreshing(true);
-                setWeekStart(new Date(weekStart));
-                setTimeout(() => setRefreshing(false), 1500);
-            }
-            pullStartY.current = null;
-        }
-    };
-
     // Handle FAB create
     const handleCreateApt = useCallback(() => {
         const dateStr = formatDateYMD(new Date());
@@ -452,15 +434,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
         <div
             ref={panelRef}
             className={`agenda-panel ${isExpanded ? 'agenda-panel--expanded' : ''} ${isFullScreen ? 'agenda-panel--fullscreen' : ''}`}
-            onTouchStart={handlePullStart}
-            onTouchEnd={handlePullEnd}
         >
-            {refreshing && (
-                <div className="agenda-panel__refresh">
-                    <span className="agenda-panel__refresh-spinner">&#8635;</span> Actualisation...
-                </div>
-            )}
-
             <div className="agenda-panel__tabs">
                 {['agenda', 'sav', 'opp', 'todo'].map(tab => {
                     const icons = { agenda: '\u{1F4C5}', sav: '\u{1F527}', opp: '\u{1F4CB}', todo: '\u2705' };
@@ -602,7 +576,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
                         <button className="agenda-panel__nav-btn" onClick={toggleFullScreen}>{isFullScreen ? '\u29D9' : '\u26F6'}</button>
                     </div>
                     {selectedSav ? (
-                        <div className="sav-detail" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
+                        <div className="sav-detail" style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
                             <div style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                                 <div style={{ fontSize: 'var(--font-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>{selectedSav.client_name || 'Client Inconnu'}</div>
                                 {selectedSav.address && <div style={{ marginBottom: '6px' }}><AddressLink address={selectedSav.address} /></div>}
@@ -643,7 +617,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
                             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', textAlign: 'right' }}>Demande du {new Date(selectedSav.requested_at).toLocaleDateString('fr-FR')}</div>
                         </div>
                     ) : (
-                        <div className="sav-list" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                        <div className="sav-list" style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
                             {savs.length === 0 && <div className="agenda-panel__empty">Aucun SAV</div>}
                             {savs.map(sav => (
                                 <div key={sav.id} style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', cursor: 'pointer' }} onClick={() => handleSavClick(sav)}>
@@ -669,7 +643,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
                         <div style={{ flex: 1 }} />
                         <button className="agenda-panel__nav-btn" onClick={toggleFullScreen}>{isFullScreen ? '\u29D9' : '\u26F6'}</button>
                     </div>
-                    <div style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                    <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
                         {opps.length === 0 && <div className="agenda-panel__empty">Aucune Opportunité</div>}
                         {opps.map(opp => (
                             <div key={opp.id} style={{ padding: '12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>

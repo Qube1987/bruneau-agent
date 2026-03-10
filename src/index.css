@@ -264,6 +264,11 @@ body {
   justify-content: center;
 }
 
+/* Hide chat when a panel tab is open */
+.agenda-panel--expanded ~ .chat {
+  display: none;
+}
+
 /* ===== Welcome Screen ===== */
 .welcome {
   text-align: center;
@@ -1394,9 +1399,9 @@ body {
 
 /* ===== Agenda Panel ===== */
 .agenda-panel {
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
 }
 
 .agenda-panel__tabs {
@@ -1414,9 +1419,9 @@ body {
 }
 
 .agenda-panel--expanded {
-  border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
-  max-height: 60vh;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -4204,27 +4209,6 @@ body {
 
 .agenda-fab:active {
   transform: scale(0.95);
-}
-
-/* ===== Pull-to-refresh ===== */
-.agenda-panel__refresh {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm);
-  font-size: var(--font-sm);
-  color: var(--accent-light);
-}
-
-.agenda-panel__refresh-spinner {
-  animation: spin 1s linear infinite;
-  font-size: var(--font-lg);
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 /* ===== MyDay Enhancements ===== */
