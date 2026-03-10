@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { supabase } from '../lib/supabase';
 import TodoPanel from './TodoPanel';
+import CreateAptModal from './CreateAptModal';
 import { useOfflineCache } from '../hooks/useOfflineCache';
 import {
     isSameDay, formatDateYMD, pad2, getWeekStart,
@@ -128,6 +129,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
     const [savInterventions, setSavInterventions] = useState([]);
     const [savInterventionsLoading, setSavInterventionsLoading] = useState(false);
     const [dbUsers, setDbUsers] = useState([]);
+    const [showCreateModal, setShowCreateModal] = useState(false);
     const panelRef = useRef(null);
 
     // ── Offline cache ──
@@ -418,17 +420,13 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
     const today = new Date();
     const timeLabels = Array.from({ length: TOTAL_HOURS }, (_, i) => HOUR_START + i);
 
-    // Handle FAB create
-    const handleCreateApt = useCallback(() => {
-        const dateStr = formatDateYMD(new Date());
-        const input = document.querySelector('.input-area__field');
-        if (input) {
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            nativeInputValueSetter.call(input, `Ajoute un rdv le ${dateStr} `);
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.focus();
+    const handleCreateAptClose = (created) => {
+        setShowCreateModal(false);
+        if (created) {
+            // Refresh agenda by bumping weekStart
+            setWeekStart(prev => new Date(prev));
         }
-    }, []);
+    };
 
     return (
         <div
@@ -555,9 +553,10 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
                     )}
 
                     {/* FAB - Create appointment */}
-                    <button className="agenda-fab" onClick={handleCreateApt} title="Nouveau RDV">
+                    <button className="agenda-fab" onClick={() => setShowCreateModal(true)} title="Nouveau RDV">
                         <span>+</span>
                     </button>
+                    {showCreateModal && <CreateAptModal onClose={handleCreateAptClose} userCode={userCode} />}
                 </div>
             )}
 

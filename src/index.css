@@ -1582,23 +1582,26 @@ body {
 /* User checkboxes */
 .agenda-panel__users {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
+  flex-wrap: nowrap;
+  gap: 3px;
+  padding: 0 var(--space-sm);
+  flex-shrink: 0;
 }
 
 .agenda-panel__user-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 3px;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: var(--bg-glass);
   border: 1px solid var(--border);
   cursor: pointer;
-  font-size: var(--font-xs);
+  font-size: 0.7rem;
   color: var(--text-primary);
   transition: all var(--transition-fast);
   user-select: none;
+  white-space: nowrap;
 }
 
 .agenda-panel__user-label:hover {
@@ -1607,15 +1610,16 @@ body {
 }
 
 .agenda-panel__checkbox {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   accent-color: var(--accent);
   cursor: pointer;
+  margin: 0;
 }
 
 .agenda-panel__user-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
@@ -3210,6 +3214,36 @@ body {
 .todo-modal__delete-btn:hover {
   background: rgba(255, 107, 107, 0.2);
   border-color: rgba(255, 107, 107, 0.4);
+}
+
+/* ── Appointment form fields ── */
+.apt-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.apt-form__label {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.apt-form__row {
+  display: flex;
+  gap: 10px;
+}
+.apt-form__hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+.apt-form__error {
+  font-size: var(--font-xs);
+  color: var(--danger);
+  padding: 6px 10px;
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: var(--radius-sm);
 }
 
 /* Undo delete toast */
