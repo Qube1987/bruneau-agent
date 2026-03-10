@@ -24,53 +24,94 @@ export function usePushNotifications(userId) {
         setIsSupported(supported);
 
         if (supported && userId) {
-            // Check browser subscription on mount
-            navigator.serviceWorker.ready.then(async (reg) => {
-                const sub = await reg.pushManager.getSubscription();
-                setIsSubscribed(!!sub);
-                console.log('[Push] Init check — subscribed:', !!sub);
-            }).catch(e => console.error('[Push] Init check error:', e));
+            checkAndSync();
         }
     }, [userId]);
 
+    async function checkAndSync() {
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            const sub = await registration.pushManager.getSubscription();
+
+            if (sub) {
+                const subJson = sub.toJSON();
+                // Check if it's saved in DB
+                const { data } = await supabase
+                    .from('agent_push_subscriptions')
+                    .select('id')
+                    .eq('endpoint', subJson.endpoint)
+                    .maybeSingle();
+
+                if (data) {
+                    // Already synced
+                    console.log('[Push] ✅ Subscription synced with DB');
+                    setIsSubscribed(true);
+                } else {
+                    // In browser but not in DB — try to save it
+                    console.log('[Push] Subscription in browser but not in DB, saving...');
+                    const { error } = await supabase.from('agent_push_subscriptions').upsert({
+                        user_id: userId,
+                        endpoint: subJson.endpoint,
+                        p256dh: subJson.keys.p256dh,
+                        auth: subJson.keys.auth,
+                    }, { onConflict: 'endpoint' });
+
+                    if (error) {
+                        console.error('[Push] Failed to sync:', error);
+                        setIsSubscribed(false);
+                    } else {
+                        console.log('[Push] ✅ Synced to DB!');
+                        setIsSubscribed(true);
+                    }
+                }
+            } else {
+                console.log('[Push] No browser subscription');
+                setIsSubscribed(false);
+            }
+        } catch (err) {
+            console.error('[Push] Check error:', err);
+        }
+    }
+
     const subscribe = useCallback(async () => {
-        console.log('[Push] subscribe() called, userId:', userId);
+        console.log('[Push] subscribe() called');
         setSubscribing(true);
 
         try {
             // Step 1: Permission
-            console.log('[Push] Step 1: Requesting permission...');
             const permission = await Notification.requestPermission();
             console.log('[Push] Permission:', permission);
             if (permission !== 'granted') {
-                alert('Notifications refusées. Vérifiez les paramètres du navigateur.');
+                alert('Notifications refusées. Activez-les dans les paramètres du navigateur.');
                 setSubscribing(false);
                 return false;
             }
 
-            // Step 2: Wait for SW
-            console.log('[Push] Step 2: Waiting for service worker...');
+            // Step 2: SW ready
             const registration = await navigator.serviceWorker.ready;
-            console.log('[Push] SW ready, scope:', registration.scope);
 
-            // Step 3: Unsubscribe existing
+            // Step 3: Remove old subscription entirely
             const existing = await registration.pushManager.getSubscription();
             if (existing) {
-                console.log('[Push] Step 3: Removing existing subscription...');
+                console.log('[Push] Removing old subscription...');
+                // Also remove from DB
+                const oldJson = existing.toJSON();
+                await supabase.from('agent_push_subscriptions')
+                    .delete()
+                    .eq('endpoint', oldJson.endpoint);
                 await existing.unsubscribe();
             }
 
-            // Step 4: Create push subscription
-            console.log('[Push] Step 4: Creating push subscription...');
+            // Step 4: Create fresh subscription
+            console.log('[Push] Creating new subscription...');
             const subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
             });
             const subJson = subscription.toJSON();
-            console.log('[Push] Subscription created!', subJson.endpoint?.substring(0, 50));
+            console.log('[Push] Created:', subJson.endpoint?.substring(0, 60));
 
             // Step 5: Save to DB
-            console.log('[Push] Step 5: Saving to Supabase...');
             const { error } = await supabase.from('agent_push_subscriptions').upsert({
                 user_id: userId,
                 endpoint: subJson.endpoint,
@@ -79,19 +120,19 @@ export function usePushNotifications(userId) {
             }, { onConflict: 'endpoint' });
 
             if (error) {
-                console.error('[Push] ❌ DB save error:', JSON.stringify(error));
-                alert('Erreur de sauvegarde: ' + error.message);
+                console.error('[Push] ❌ DB error:', JSON.stringify(error));
+                alert('Erreur sauvegarde: ' + error.message);
                 setSubscribing(false);
                 return false;
             }
 
-            console.log('[Push] ✅ Subscription saved to DB!');
+            console.log('[Push] ✅ Saved to DB!');
             setIsSubscribed(true);
             setSubscribing(false);
             return true;
         } catch (err) {
             console.error('[Push] ❌ Error:', err);
-            alert('Erreur notifications: ' + err.message);
+            alert('Erreur: ' + err.message);
             setSubscribing(false);
             return false;
         }
@@ -107,9 +148,9 @@ export function usePushNotifications(userId) {
                 await supabase.from('agent_push_subscriptions')
                     .delete()
                     .eq('endpoint', endpoint);
-                console.log('[Push] Unsubscribed');
             }
             setIsSubscribed(false);
+            console.log('[Push] Unsubscribed');
         } catch (err) {
             console.error('[Push] Unsubscribe error:', err);
         }

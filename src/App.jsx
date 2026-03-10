@@ -6,7 +6,7 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 import { ChatMessage, TypingIndicator, StatusMessage } from './components/ChatMessage';
 import { ConfirmationCard, SelectionCard } from './components/ActionCard';
 import { ComposeCard } from './components/ComposeCard';
-import RdvConfirmList from './components/RdvConfirmList';
+import NotificationPanel, { getNotifBadgeCount } from './components/NotificationPanel';
 import AgendaPanel from './components/AgendaPanel';
 import MyDayPanel from './components/MyDayPanel';
 import LoginScreen from './components/LoginScreen';
@@ -153,11 +153,14 @@ export default function App() {
             ☀️ Ma journée
           </button>
           <button
-            className="header__action-btn"
+            className="header__action-btn header__bell-btn"
             onClick={() => setShowRdvConfirm(true)}
-            title="Confirmations RDV"
+            title="Notifications"
           >
             🔔
+            {getNotifBadgeCount(agendaData.tasks) > 0 && (
+              <span className="header__bell-badge">{getNotifBadgeCount(agendaData.tasks)}</span>
+            )}
           </button>
           <div className="header__user-wrapper">
             <button
@@ -216,7 +219,7 @@ export default function App() {
 
       {/* RDV Confirm Overlay */}
       {showRdvConfirm && (
-        <RdvConfirmList onClose={() => setShowRdvConfirm(false)} />
+        <NotificationPanel onClose={() => setShowRdvConfirm(false)} tasks={agendaData.tasks} />
       )}
 
       {/* Chat Area */}
