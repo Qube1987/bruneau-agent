@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import TodoPanel from './TodoPanel';
-import DayView from './DayView';
-import { useWeather } from '../hooks/useWeather';
 import { useOfflineCache } from '../hooks/useOfflineCache';
 import {
     isSameDay, formatDateYMD, pad2, getWeekStart,
-    DAYS_FR_SHORT, MONTHS_FR, computeTravelTimes,
+    DAYS_FR_SHORT, MONTHS_FR,
 } from '../utils/agendaUtils';
 
 const TEAM_MEMBERS = [
@@ -132,14 +130,6 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
     const [dbUsers, setDbUsers] = useState([]);
     const panelRef = useRef(null);
 
-    // ── New: Mobile detection & Day View state ──
-    const [viewMode, setViewMode] = useState(() => window.innerWidth < 768 ? 'day' : 'week');
-    const [dayViewDate, setDayViewDate] = useState(new Date());
-    const [travelTimes, setTravelTimes] = useState([]);
-
-    // ── Weather ──
-    const { weather } = useWeather();
-
     // ── Offline cache ──
     const { cacheAppointments, loadCachedAppointments, cacheTasks, loadCachedTasks } = useOfflineCache();
 
@@ -233,7 +223,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
         return result;
     })();
 
-    // All appointments (for DayView which filters by userCode)
+    // All appointments (for MyDay/agent context)
     const allAppointments = (() => {
         const result = [];
         for (const code of Object.keys(teamAptsCache)) {
@@ -314,21 +304,6 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
             cacheTasks(tasks);
         }
     }, [tasks, tasksLoaded, cacheTasks]);
-
-    // ── Compute travel times for day view ──
-    useEffect(() => {
-        if (viewMode !== 'day') return;
-        const dayApts = allAppointments
-            .filter(a => a._start && isSameDay(a._start, dayViewDate) &&
-                (!userCode || !a._userCode || String(a._userCode) === String(userCode)))
-            .sort((a, b) => a._start - b._start);
-
-        if (dayApts.length >= 2) {
-            computeTravelTimes(dayApts).then(setTravelTimes).catch(() => setTravelTimes([]));
-        } else {
-            setTravelTimes([]);
-        }
-    }, [dayViewDate, allAppointments, viewMode, userCode]);
 
     // ── Expose data ──
     useEffect(() => {
@@ -462,17 +437,16 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
     };
 
     // Handle FAB create
-    const handleCreateApt = useCallback((slot) => {
-        const time = slot ? ` a ${Math.floor(slot.start / 60)}h${slot.start % 60 > 0 ? pad2(slot.start % 60) : ''}` : '';
-        const dateStr = formatDateYMD(dayViewDate);
+    const handleCreateApt = useCallback(() => {
+        const dateStr = formatDateYMD(new Date());
         const input = document.querySelector('.input-area__field');
         if (input) {
             const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            nativeInputValueSetter.call(input, `Ajoute un rdv${time} le ${dateStr} `);
+            nativeInputValueSetter.call(input, `Ajoute un rdv le ${dateStr} `);
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.focus();
         }
-    }, [dayViewDate]);
+    }, []);
 
     return (
         <div
@@ -505,136 +479,111 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
             </div>
 
             {isExpanded && activeTab === 'agenda' && (
-                <div className="agenda-panel__content">
+                <div className="agenda-panel__content" style={{ position: 'relative' }}>
                     <div className="agenda-panel__nav">
-                        {viewMode === 'week' ? (
-                            <>
-                                <button className="agenda-panel__nav-btn" onClick={goToPrev}>{'\u25C0'}</button>
-                                <button className="agenda-panel__nav-btn agenda-panel__nav-btn--today" onClick={goToToday}>Auj.</button>
-                                <button className="agenda-panel__nav-btn" onClick={goToNext}>{'\u25B6'}</button>
-                                <span className="agenda-panel__date-range">
-                                    {weekStart.getDate()} {MONTHS_FR[weekStart.getMonth()]} — {weekEnd.getDate()} {MONTHS_FR[weekEnd.getMonth()]}
-                                </span>
-                            </>
-                        ) : (
-                            <span className="agenda-panel__date-range" style={{ fontWeight: 600 }}>Vue Jour</span>
-                        )}
+                        <button className="agenda-panel__nav-btn" onClick={goToPrev}>{'\u25C0'}</button>
+                        <button className="agenda-panel__nav-btn agenda-panel__nav-btn--today" onClick={goToToday}>Auj.</button>
+                        <button className="agenda-panel__nav-btn" onClick={goToNext}>{'\u25B6'}</button>
+                        <span className="agenda-panel__date-range">
+                            {weekStart.getDate()} {MONTHS_FR[weekStart.getMonth()]} — {weekEnd.getDate()} {MONTHS_FR[weekEnd.getMonth()]}
+                        </span>
                         <div style={{ flex: 1 }} />
                         {loading && <span className="agenda-panel__loader">&#10227;</span>}
-                        <button
-                            className={`agenda-panel__view-toggle ${viewMode === 'day' ? 'agenda-panel__view-toggle--active' : ''}`}
-                            onClick={() => setViewMode(v => v === 'day' ? 'week' : 'day')}
-                            title={viewMode === 'day' ? 'Vue semaine' : 'Vue jour'}
-                        >
-                            {viewMode === 'day' ? '\u{1F4C5}' : '\u{1F4C6}'}
-                        </button>
                         <button className="agenda-panel__nav-btn" onClick={toggleFullScreen} title="Plein écran">
                             {isFullScreen ? '\u29D9' : '\u26F6'}
                         </button>
                     </div>
 
-                    {viewMode === 'day' ? (
-                        <DayView
-                            appointments={allAppointments}
-                            tasks={tasks}
-                            setTasks={setTasks}
-                            selectedDate={dayViewDate}
-                            onDateChange={setDayViewDate}
-                            userCode={userCode}
-                            userName={userName}
-                            travelTimes={travelTimes}
-                            weather={weather}
-                            onCreateApt={handleCreateApt}
-                        />
-                    ) : (
-                        <>
-                            <div className="agenda-panel__users">
-                                {TEAM_MEMBERS.map(member => (
-                                    <label key={member.code} className="agenda-panel__user-label">
-                                        <input type="checkbox" checked={selectedUsers.includes(member.code)} onChange={() => toggleUser(member.code)} className="agenda-panel__checkbox" />
-                                        <span className="agenda-panel__user-dot" style={{ background: member.color }} />
-                                        <span className="agenda-panel__user-name">{member.name}</span>
-                                    </label>
-                                ))}
-                            </div>
+                    <div className="agenda-panel__users">
+                        {TEAM_MEMBERS.map(member => (
+                            <label key={member.code} className="agenda-panel__user-label">
+                                <input type="checkbox" checked={selectedUsers.includes(member.code)} onChange={() => toggleUser(member.code)} className="agenda-panel__checkbox" />
+                                <span className="agenda-panel__user-dot" style={{ background: member.color }} />
+                                <span className="agenda-panel__user-name">{member.name}</span>
+                            </label>
+                        ))}
+                    </div>
 
-                            {selectedUsers.length === 0 ? (
-                                <div className="agenda-panel__empty"><span>{'\u{1F4C5}'}</span><p>Cochez un ou plusieurs membres</p></div>
-                            ) : (
-                                <div className="agenda-timeline">
-                                    <div className={`agenda-timeline__grid ${focusedDayIndex !== null ? 'agenda-timeline__grid--single' : ''}`}>
-                                        <div className="agenda-timeline__gutter">
-                                            <div className="agenda-timeline__gutter-header" />
-                                            <div className="agenda-timeline__gutter-body" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
-                                                {timeLabels.map(h => (
-                                                    <div key={h} className="agenda-timeline__time-label" style={{ top: `${(h - HOUR_START) * HOUR_HEIGHT}px` }}>{h}:00</div>
-                                                ))}
+                    {selectedUsers.length === 0 ? (
+                        <div className="agenda-panel__empty"><span>{'\u{1F4C5}'}</span><p>Cochez un ou plusieurs membres</p></div>
+                    ) : (
+                        <div className="agenda-timeline">
+                            <div className={`agenda-timeline__grid ${focusedDayIndex !== null ? 'agenda-timeline__grid--single' : ''}`}>
+                                <div className="agenda-timeline__gutter">
+                                    <div className="agenda-timeline__gutter-header" />
+                                    <div className="agenda-timeline__gutter-body" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
+                                        {timeLabels.map(h => (
+                                            <div key={h} className="agenda-timeline__time-label" style={{ top: `${(h - HOUR_START) * HOUR_HEIGHT}px` }}>{h}:00</div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {weekDays.map((day, di) => {
+                                    if (focusedDayIndex !== null && focusedDayIndex !== di) return null;
+                                    const isDayToday = isSameDay(day, today);
+                                    const dayApts = getAptsForDay(day);
+                                    const laidOut = layoutAptsForDay(dayApts);
+                                    let nowTop = null;
+                                    if (isDayToday) {
+                                        const nowH = today.getHours() + today.getMinutes() / 60;
+                                        if (nowH >= HOUR_START && nowH <= HOUR_END) nowTop = (nowH - HOUR_START) * HOUR_HEIGHT;
+                                    }
+                                    return (
+                                        <div key={di} className={`agenda-timeline__day ${isDayToday ? 'agenda-timeline__day--today' : ''}`}>
+                                            <div className={`agenda-timeline__day-header ${isDayToday ? 'agenda-timeline__day-header--today' : ''}`} onClick={() => setFocusedDayIndex(focusedDayIndex === di ? null : di)} style={{ cursor: 'pointer' }}>
+                                                <span className="agenda-timeline__day-name">{DAYS_FR_SHORT[day.getDay()]}</span>
+                                                <span className={`agenda-timeline__day-num ${isDayToday ? 'agenda-timeline__day-num--today' : ''}`}>{day.getDate()}</span>
+                                            </div>
+                                            <div className="agenda-timeline__day-body" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
+                                                {timeLabels.map(h => (<div key={h} className="agenda-timeline__hour-line" style={{ top: `${(h - HOUR_START) * HOUR_HEIGHT}px` }} />))}
+                                                {nowTop !== null && (<div className="agenda-timeline__now-line" style={{ top: `${nowTop}px` }}><div className="agenda-timeline__now-dot" /></div>)}
+                                                {laidOut.map(({ apt, col, totalCols }, ai) => {
+                                                    const style = getAptStyle(apt);
+                                                    const widthPct = 100 / totalCols;
+                                                    const leftPct = col * widthPct;
+                                                    const startStr = `${pad2(apt._start.getHours())}:${pad2(apt._start.getMinutes())}`;
+                                                    const endStr = `${pad2(apt._end.getHours())}:${pad2(apt._end.getMinutes())}`;
+                                                    const aptId = apt.id || `${di}-${ai}`;
+                                                    return (
+                                                        <div key={aptId} className="agenda-timeline__apt" style={{ top: style.top, height: style.height, left: `${leftPct}%`, width: `${widthPct - 2}%`, background: `${apt._color}25`, borderLeftColor: apt._color }}
+                                                            onClick={(e) => { e.stopPropagation(); setActiveAptData(prev => prev?.id === aptId ? null : { id: aptId, clientName: apt._clientName, objet: apt._objet, userName: apt._userName, color: apt._color, startStr, endStr, address: apt._address, phone: apt._phone }); }}>
+                                                            <div className="agenda-timeline__apt-time">{startStr}</div>
+                                                            {apt._clientName && <div className="agenda-timeline__apt-client">{apt._clientName}</div>}
+                                                            <div className="agenda-timeline__apt-title">{apt._objet}</div>
+                                                            {selectedUsers.length > 1 && <div className="agenda-timeline__apt-user" style={{ color: apt._color }}>{apt._userName}</div>}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
-                                        {weekDays.map((day, di) => {
-                                            if (focusedDayIndex !== null && focusedDayIndex !== di) return null;
-                                            const isDayToday = isSameDay(day, today);
-                                            const dayApts = getAptsForDay(day);
-                                            const laidOut = layoutAptsForDay(dayApts);
-                                            let nowTop = null;
-                                            if (isDayToday) {
-                                                const nowH = today.getHours() + today.getMinutes() / 60;
-                                                if (nowH >= HOUR_START && nowH <= HOUR_END) nowTop = (nowH - HOUR_START) * HOUR_HEIGHT;
-                                            }
-                                            return (
-                                                <div key={di} className={`agenda-timeline__day ${isDayToday ? 'agenda-timeline__day--today' : ''}`}>
-                                                    <div className={`agenda-timeline__day-header ${isDayToday ? 'agenda-timeline__day-header--today' : ''}`} onClick={() => setFocusedDayIndex(focusedDayIndex === di ? null : di)} style={{ cursor: 'pointer' }}>
-                                                        <span className="agenda-timeline__day-name">{DAYS_FR_SHORT[day.getDay()]}</span>
-                                                        <span className={`agenda-timeline__day-num ${isDayToday ? 'agenda-timeline__day-num--today' : ''}`}>{day.getDate()}</span>
-                                                    </div>
-                                                    <div className="agenda-timeline__day-body" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
-                                                        {timeLabels.map(h => (<div key={h} className="agenda-timeline__hour-line" style={{ top: `${(h - HOUR_START) * HOUR_HEIGHT}px` }} />))}
-                                                        {nowTop !== null && (<div className="agenda-timeline__now-line" style={{ top: `${nowTop}px` }}><div className="agenda-timeline__now-dot" /></div>)}
-                                                        {laidOut.map(({ apt, col, totalCols }, ai) => {
-                                                            const style = getAptStyle(apt);
-                                                            const widthPct = 100 / totalCols;
-                                                            const leftPct = col * widthPct;
-                                                            const startStr = `${pad2(apt._start.getHours())}:${pad2(apt._start.getMinutes())}`;
-                                                            const endStr = `${pad2(apt._end.getHours())}:${pad2(apt._end.getMinutes())}`;
-                                                            const aptId = apt.id || `${di}-${ai}`;
-                                                            return (
-                                                                <div key={aptId} className="agenda-timeline__apt" style={{ top: style.top, height: style.height, left: `${leftPct}%`, width: `${widthPct - 2}%`, background: `${apt._color}25`, borderLeftColor: apt._color }}
-                                                                    onClick={(e) => { e.stopPropagation(); setActiveAptData(prev => prev?.id === aptId ? null : { id: aptId, clientName: apt._clientName, objet: apt._objet, userName: apt._userName, color: apt._color, startStr, endStr, address: apt._address, phone: apt._phone }); }}>
-                                                                    <div className="agenda-timeline__apt-time">{startStr}</div>
-                                                                    {apt._clientName && <div className="agenda-timeline__apt-client">{apt._clientName}</div>}
-                                                                    <div className="agenda-timeline__apt-title">{apt._objet}</div>
-                                                                    {selectedUsers.length > 1 && <div className="agenda-timeline__apt-user" style={{ color: apt._color }}>{apt._userName}</div>}
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-
-                            {activeAptData && (
-                                <div className="agenda-detail-overlay" onClick={() => setActiveAptData(null)}>
-                                    <div className="agenda-detail-sheet" onClick={(e) => e.stopPropagation()}>
-                                        <div className="agenda-detail-sheet__header">
-                                            <div className="agenda-detail-sheet__time">{activeAptData.startStr} → {activeAptData.endStr}</div>
-                                            <button className="agenda-detail-sheet__close" onClick={() => setActiveAptData(null)}>✕</button>
-                                        </div>
-                                        {activeAptData.clientName && <div className="agenda-detail-sheet__client">{activeAptData.clientName}</div>}
-                                        <div className="agenda-detail-sheet__objet">{activeAptData.objet}</div>
-                                        {activeAptData.address && <div style={{ marginBottom: '8px' }}><AddressLink address={activeAptData.address} /></div>}
-                                        {activeAptData.phone && <div style={{ marginBottom: '8px' }}><PhoneLink phone={activeAptData.phone} /></div>}
-                                        <div className="agenda-detail-sheet__user" style={{ color: activeAptData.color }}>
-                                            <span className="agenda-detail-sheet__dot" style={{ background: activeAptData.color }} />
-                                            {activeAptData.userName}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     )}
+
+                    {activeAptData && (
+                        <div className="agenda-detail-overlay" onClick={() => setActiveAptData(null)}>
+                            <div className="agenda-detail-sheet" onClick={(e) => e.stopPropagation()}>
+                                <div className="agenda-detail-sheet__header">
+                                    <div className="agenda-detail-sheet__time">{activeAptData.startStr} → {activeAptData.endStr}</div>
+                                    <button className="agenda-detail-sheet__close" onClick={() => setActiveAptData(null)}>✕</button>
+                                </div>
+                                {activeAptData.clientName && <div className="agenda-detail-sheet__client">{activeAptData.clientName}</div>}
+                                <div className="agenda-detail-sheet__objet">{activeAptData.objet}</div>
+                                {activeAptData.address && <div style={{ marginBottom: '8px' }}><AddressLink address={activeAptData.address} /></div>}
+                                {activeAptData.phone && <div style={{ marginBottom: '8px' }}><PhoneLink phone={activeAptData.phone} /></div>}
+                                <div className="agenda-detail-sheet__user" style={{ color: activeAptData.color }}>
+                                    <span className="agenda-detail-sheet__dot" style={{ background: activeAptData.color }} />
+                                    {activeAptData.userName}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* FAB - Create appointment */}
+                    <button className="agenda-fab" onClick={handleCreateApt} title="Nouveau RDV">
+                        <span>+</span>
+                    </button>
                 </div>
             )}
 
