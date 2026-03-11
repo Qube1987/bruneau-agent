@@ -130,206 +130,208 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks,
                     <button className="myday-close" onClick={onClose}>{'\u2715'}</button>
                 </div>
 
-                {/* Weather bar */}
-                {weather?.today && isToday && (
-                    <div className="myday-weather">
-                        <span className="myday-weather__icon">{weather.today.icon}</span>
-                        <span className="myday-weather__temp">{weather.today.temp}°C</span>
-                        <span className="myday-weather__desc">{weather.today.description}</span>
-                        {weather.today.wind > 20 && <span className="myday-weather__wind">{'\u{1F4A8}'} {weather.today.wind} km/h</span>}
-                    </div>
-                )}
-
-                {/* Stats strip */}
-                <div className="myday-stats">
-                    <div className="myday-stat">
-                        <span className="myday-stat__num">{dayApts.length}</span>
-                        <span className="myday-stat__label">RDV</span>
-                    </div>
-                    <div className="myday-stat">
-                        <span className="myday-stat__num">{uniqueDayTasks.length + overdueTasks.length}</span>
-                        <span className="myday-stat__label">Tâches</span>
-                    </div>
-                    {overdueTasks.length > 0 && (
-                        <div className="myday-stat myday-stat--danger">
-                            <span className="myday-stat__num">{overdueTasks.length}</span>
-                            <span className="myday-stat__label">En retard</span>
-                        </div>
-                    )}
-                    {conflicts.length > 0 && (
-                        <div className="myday-stat myday-stat--danger">
-                            <span className="myday-stat__num">{conflicts.length}</span>
-                            <span className="myday-stat__label">Conflits</span>
-                        </div>
-                    )}
-                </div>
-
-                {/* Briefing (today only) */}
-                {briefingText && (
-                    <div className="myday-briefing">
-                        <div className="myday-briefing__label">{'\u{1F916}'} Briefing</div>
-                        <div className="myday-briefing__text">{briefingText}</div>
-                    </div>
-                )}
-
-                <div className="myday-body">
-                    {/* Conflict warnings */}
-                    {conflicts.length > 0 && (
-                        <div className="myday-section">
-                            <div className="myday-section-title myday-section-title--danger">{'\u26A0'} Conflits horaires</div>
-                            {conflicts.map((c, i) => (
-                                <div key={i} className="myday-conflict">
-                                    <strong>{formatTime(c.apt1._start)}</strong> {c.apt1._clientName || c.apt1._objet}
-                                    {' '}vs{' '}
-                                    <strong>{formatTime(c.apt2._start)}</strong> {c.apt2._clientName || c.apt2._objet}
-                                    <span className="myday-conflict__overlap"> ({c.overlapMinutes}min chevauchement)</span>
-                                </div>
-                            ))}
+                <div className="myday-scroll">
+                    {/* Weather bar */}
+                    {weather?.today && isToday && (
+                        <div className="myday-weather">
+                            <span className="myday-weather__icon">{weather.today.icon}</span>
+                            <span className="myday-weather__temp">{weather.today.temp}°C</span>
+                            <span className="myday-weather__desc">{weather.today.description}</span>
+                            {weather.today.wind > 20 && <span className="myday-weather__wind">{'\u{1F4A8}'} {weather.today.wind} km/h</span>}
                         </div>
                     )}
 
-                    {/* Next appointment highlight */}
-                    {(currentApt || upcomingApt) && (
-                        <div className="myday-next">
-                            <div className="myday-section-title">
-                                {currentApt ? '\u{23F0} En cours' : isToday ? '\u{23F0} Prochain RDV' : '\u{1F4CC} Premier RDV'}
+                    {/* Stats strip */}
+                    <div className="myday-stats">
+                        <div className="myday-stat">
+                            <span className="myday-stat__num">{dayApts.length}</span>
+                            <span className="myday-stat__label">RDV</span>
+                        </div>
+                        <div className="myday-stat">
+                            <span className="myday-stat__num">{uniqueDayTasks.length + overdueTasks.length}</span>
+                            <span className="myday-stat__label">Tâches</span>
+                        </div>
+                        {overdueTasks.length > 0 && (
+                            <div className="myday-stat myday-stat--danger">
+                                <span className="myday-stat__num">{overdueTasks.length}</span>
+                                <span className="myday-stat__label">En retard</span>
                             </div>
-                            <div className="myday-next__card" style={{ borderLeftColor: (currentApt || upcomingApt)._color }}>
-                                <div className="myday-next__time">{formatTime((currentApt || upcomingApt)._start)} → {formatTime((currentApt || upcomingApt)._end)}</div>
-                                <div className="myday-next__title">{(currentApt || upcomingApt)._clientName || (currentApt || upcomingApt)._objet}</div>
-                                {(currentApt || upcomingApt)._clientName && (currentApt || upcomingApt)._objet && (
-                                    <div className="myday-next__objet">{(currentApt || upcomingApt)._objet}</div>
-                                )}
-                                <div className="myday-next__links">
-                                    <AddressLink address={(currentApt || upcomingApt)._address} />
-                                    <PhoneLink phone={(currentApt || upcomingApt)._phone} senderName={userName} />
-                                </div>
-                                {/* Travel time to next */}
-                                {!currentApt && upcomingApt && travelTimes.find(t => t.toApt?.id === upcomingApt.id) && (() => {
-                                    const travel = travelTimes.find(t => t.toApt?.id === upcomingApt.id);
-                                    return (
-                                        <div className={`myday-next__travel ${travel.tight ? 'myday-next__travel--tight' : ''}`}>
-                                            {'\u{1F697}'} {travel.minutes} min de trajet ({travel.km} km)
-                                            {travel.tight && <span> — Temps serré !</span>}
-                                        </div>
-                                    );
-                                })()}
+                        )}
+                        {conflicts.length > 0 && (
+                            <div className="myday-stat myday-stat--danger">
+                                <span className="myday-stat__num">{conflicts.length}</span>
+                                <span className="myday-stat__label">Conflits</span>
                             </div>
+                        )}
+                    </div>
+
+                    {/* Briefing (today only) */}
+                    {briefingText && (
+                        <div className="myday-briefing">
+                            <div className="myday-briefing__label">{'\u{1F916}'} Briefing</div>
+                            <div className="myday-briefing__text">{briefingText}</div>
                         </div>
                     )}
 
-                    {/* Timeline */}
-                    {dayApts.length > 0 && (
-                        <div className="myday-section">
-                            <div className="myday-section-title">{'\u{1F4C5}'} Planning du jour</div>
-                            <div className="myday-timeline">
-                                {dayApts.map((apt, i) => {
-                                    const isPast = isToday && apt._end < now;
-                                    const isCurrent = isToday && apt._start <= now && apt._end >= now;
-                                    const travel = travelTimes.find(t => t.toApt?.id === apt.id);
-                                    return (
-                                        <div key={apt.id || i}>
-                                            {/* Travel indicator between appointments */}
-                                            {travel && (
-                                                <div className={`myday-travel ${travel.tight ? 'myday-travel--tight' : ''}`}>
-                                                    <span className="myday-travel__icon">{'\u{1F697}'}</span>
-                                                    <span>{travel.minutes} min ({travel.km} km)</span>
-                                                    {travel.tight && <span className="myday-travel__warn">{'\u26A0'} serré</span>}
-                                                </div>
-                                            )}
-                                            <div className={`myday-apt ${isPast ? 'myday-apt--past' : ''} ${isCurrent ? 'myday-apt--current' : ''}`}>
-                                                <div className="myday-apt__time-col">
-                                                    <span className="myday-apt__time">{formatTime(apt._start)}</span>
-                                                    <div className="myday-apt__line" style={{ background: apt._color }} />
-                                                </div>
-                                                <div className="myday-apt__info">
-                                                    <div className="myday-apt__title">
-                                                        {apt._clientName || apt._objet}
-                                                        {isCurrent && <span className="myday-apt__live">EN COURS</span>}
-                                                    </div>
-                                                    {apt._clientName && apt._objet && <div className="myday-apt__desc">{apt._objet}</div>}
-                                                    <div className="myday-apt__links">
-                                                        <AddressLink address={apt._address} />
-                                                        <PhoneLink phone={apt._phone} senderName={userName} />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Free slots */}
-                    {freeSlots.length > 0 && dayApts.length > 0 && (
-                        <div className="myday-section">
-                            <div className="myday-section-title">{'\u{1F4A1}'} Créneaux libres</div>
-                            <div className="myday-freeslots">
-                                {freeSlots.map((slot, i) => (
-                                    <div key={i} className="myday-freeslot">
-                                        <span className="myday-freeslot__time">{formatSlotTime(slot.start)} - {formatSlotTime(slot.end)}</span>
-                                        <span className="myday-freeslot__dur">{Math.floor(slot.minutes / 60)}h{slot.minutes % 60 > 0 ? String(slot.minutes % 60).padStart(2, '0') : ''}</span>
+                    <div className="myday-body">
+                        {/* Conflict warnings */}
+                        {conflicts.length > 0 && (
+                            <div className="myday-section">
+                                <div className="myday-section-title myday-section-title--danger">{'\u26A0'} Conflits horaires</div>
+                                {conflicts.map((c, i) => (
+                                    <div key={i} className="myday-conflict">
+                                        <strong>{formatTime(c.apt1._start)}</strong> {c.apt1._clientName || c.apt1._objet}
+                                        {' '}vs{' '}
+                                        <strong>{formatTime(c.apt2._start)}</strong> {c.apt2._clientName || c.apt2._objet}
+                                        <span className="myday-conflict__overlap"> ({c.overlapMinutes}min chevauchement)</span>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Overdue tasks */}
-                    {overdueTasks.length > 0 && (
-                        <div className="myday-section">
-                            <div className="myday-section-title myday-section-title--danger">{'\u{1F525}'} En retard</div>
-                            {overdueTasks.map(task => (
-                                <div key={task.id} className="myday-task myday-task--overdue">
-                                    <button className="todo-checkbox" onClick={() => toggleTask(task)} style={{ borderColor: '#ff6b6b' }} />
-                                    <div className="myday-task__title">{task.title}</div>
+                        {/* Next appointment highlight */}
+                        {(currentApt || upcomingApt) && (
+                            <div className="myday-next">
+                                <div className="myday-section-title">
+                                    {currentApt ? '\u{23F0} En cours' : isToday ? '\u{23F0} Prochain RDV' : '\u{1F4CC} Premier RDV'}
                                 </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Day's tasks */}
-                    {uniqueDayTasks.length > 0 && (
-                        <div className="myday-section">
-                            <div className="myday-section-title">{'\u2705'} Tâches du jour</div>
-                            {uniqueDayTasks.map(task => (
-                                <div key={task.id} className="myday-task">
-                                    <button className="todo-checkbox" onClick={() => toggleTask(task)} style={{ borderColor: '#6c5ce7' }} />
-                                    <div className="myday-task__title">{task.title}</div>
+                                <div className="myday-next__card" style={{ borderLeftColor: (currentApt || upcomingApt)._color }}>
+                                    <div className="myday-next__time">{formatTime((currentApt || upcomingApt)._start)} → {formatTime((currentApt || upcomingApt)._end)}</div>
+                                    <div className="myday-next__title">{(currentApt || upcomingApt)._clientName || (currentApt || upcomingApt)._objet}</div>
+                                    {(currentApt || upcomingApt)._clientName && (currentApt || upcomingApt)._objet && (
+                                        <div className="myday-next__objet">{(currentApt || upcomingApt)._objet}</div>
+                                    )}
+                                    <div className="myday-next__links">
+                                        <AddressLink address={(currentApt || upcomingApt)._address} />
+                                        <PhoneLink phone={(currentApt || upcomingApt)._phone} senderName={userName} />
+                                    </div>
+                                    {/* Travel time to next */}
+                                    {!currentApt && upcomingApt && travelTimes.find(t => t.toApt?.id === upcomingApt.id) && (() => {
+                                        const travel = travelTimes.find(t => t.toApt?.id === upcomingApt.id);
+                                        return (
+                                            <div className={`myday-next__travel ${travel.tight ? 'myday-next__travel--tight' : ''}`}>
+                                                {'\u{1F697}'} {travel.minutes} min de trajet ({travel.km} km)
+                                                {travel.tight && <span> — Temps serré !</span>}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* 5-day forecast */}
-                    {weather?.forecast && weather.forecast.length > 0 && (
-                        <div className="myday-section">
-                            <div className="myday-section-title">{'\u{1F324}'} Prévisions</div>
-                            <div className="myday-forecast">
-                                {weather.forecast.map((day, i) => {
-                                    const d = new Date(day.date + 'T12:00:00');
-                                    const dayName = d.toLocaleDateString('fr-FR', { weekday: 'short' });
-                                    return (
-                                        <div key={i} className="myday-forecast__day">
-                                            <span className="myday-forecast__name">{dayName}</span>
-                                            <span className="myday-forecast__icon">{day.icon}</span>
-                                            <span className="myday-forecast__temp">{day.tempMax}°/{day.tempMin}°</span>
-                                        </div>
-                                    );
-                                })}
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Empty state */}
-                    {dayApts.length === 0 && uniqueDayTasks.length === 0 && overdueTasks.length === 0 && (
-                        <div className="myday-empty">
-                            <span>{'\u{1F324}'}</span>
-                            <p>Journée libre ! Profitez-en ou ajoutez des tâches.</p>
-                        </div>
-                    )}
-                </div>
+                        {/* Timeline */}
+                        {dayApts.length > 0 && (
+                            <div className="myday-section">
+                                <div className="myday-section-title">{'\u{1F4C5}'} Planning du jour</div>
+                                <div className="myday-timeline">
+                                    {dayApts.map((apt, i) => {
+                                        const isPast = isToday && apt._end < now;
+                                        const isCurrent = isToday && apt._start <= now && apt._end >= now;
+                                        const travel = travelTimes.find(t => t.toApt?.id === apt.id);
+                                        return (
+                                            <div key={apt.id || i}>
+                                                {/* Travel indicator between appointments */}
+                                                {travel && (
+                                                    <div className={`myday-travel ${travel.tight ? 'myday-travel--tight' : ''}`}>
+                                                        <span className="myday-travel__icon">{'\u{1F697}'}</span>
+                                                        <span>{travel.minutes} min ({travel.km} km)</span>
+                                                        {travel.tight && <span className="myday-travel__warn">{'\u26A0'} serré</span>}
+                                                    </div>
+                                                )}
+                                                <div className={`myday-apt ${isPast ? 'myday-apt--past' : ''} ${isCurrent ? 'myday-apt--current' : ''}`}>
+                                                    <div className="myday-apt__time-col">
+                                                        <span className="myday-apt__time">{formatTime(apt._start)}</span>
+                                                        <div className="myday-apt__line" style={{ background: apt._color }} />
+                                                    </div>
+                                                    <div className="myday-apt__info">
+                                                        <div className="myday-apt__title">
+                                                            {apt._clientName || apt._objet}
+                                                            {isCurrent && <span className="myday-apt__live">EN COURS</span>}
+                                                        </div>
+                                                        {apt._clientName && apt._objet && <div className="myday-apt__desc">{apt._objet}</div>}
+                                                        <div className="myday-apt__links">
+                                                            <AddressLink address={apt._address} />
+                                                            <PhoneLink phone={apt._phone} senderName={userName} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Free slots */}
+                        {freeSlots.length > 0 && dayApts.length > 0 && (
+                            <div className="myday-section">
+                                <div className="myday-section-title">{'\u{1F4A1}'} Créneaux libres</div>
+                                <div className="myday-freeslots">
+                                    {freeSlots.map((slot, i) => (
+                                        <div key={i} className="myday-freeslot">
+                                            <span className="myday-freeslot__time">{formatSlotTime(slot.start)} - {formatSlotTime(slot.end)}</span>
+                                            <span className="myday-freeslot__dur">{Math.floor(slot.minutes / 60)}h{slot.minutes % 60 > 0 ? String(slot.minutes % 60).padStart(2, '0') : ''}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Overdue tasks */}
+                        {overdueTasks.length > 0 && (
+                            <div className="myday-section">
+                                <div className="myday-section-title myday-section-title--danger">{'\u{1F525}'} En retard</div>
+                                {overdueTasks.map(task => (
+                                    <div key={task.id} className="myday-task myday-task--overdue">
+                                        <button className="todo-checkbox" onClick={() => toggleTask(task)} style={{ borderColor: '#ff6b6b' }} />
+                                        <div className="myday-task__title">{task.title}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Day's tasks */}
+                        {uniqueDayTasks.length > 0 && (
+                            <div className="myday-section">
+                                <div className="myday-section-title">{'\u2705'} Tâches du jour</div>
+                                {uniqueDayTasks.map(task => (
+                                    <div key={task.id} className="myday-task">
+                                        <button className="todo-checkbox" onClick={() => toggleTask(task)} style={{ borderColor: '#6c5ce7' }} />
+                                        <div className="myday-task__title">{task.title}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* 5-day forecast */}
+                        {weather?.forecast && weather.forecast.length > 0 && (
+                            <div className="myday-section">
+                                <div className="myday-section-title">{'\u{1F324}'} Prévisions</div>
+                                <div className="myday-forecast">
+                                    {weather.forecast.map((day, i) => {
+                                        const d = new Date(day.date + 'T12:00:00');
+                                        const dayName = d.toLocaleDateString('fr-FR', { weekday: 'short' });
+                                        return (
+                                            <div key={i} className="myday-forecast__day">
+                                                <span className="myday-forecast__name">{dayName}</span>
+                                                <span className="myday-forecast__icon">{day.icon}</span>
+                                                <span className="myday-forecast__temp">{day.tempMax}°/{day.tempMin}°</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Empty state */}
+                        {dayApts.length === 0 && uniqueDayTasks.length === 0 && overdueTasks.length === 0 && (
+                            <div className="myday-empty">
+                                <span>{'\u{1F324}'}</span>
+                                <p>Journée libre ! Profitez-en ou ajoutez des tâches.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>{/* end myday-scroll */}
             </div>
         </div>
     );
