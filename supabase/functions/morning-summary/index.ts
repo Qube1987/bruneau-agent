@@ -38,11 +38,25 @@ Deno.serve(async (req) => {
             vapidPrivateKey
         );
 
-        // Today's date (CET = UTC+1, at 05:00 UTC it's 06:00 CET)
+        // Today's date in Europe/Paris timezone
         const now = new Date();
-        const todayStr = now.toISOString().split("T")[0];
-        const dayNames = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-        const dayName = dayNames[now.getDay()];
+        const parisFormatter = new Intl.DateTimeFormat("fr-FR", {
+            timeZone: "Europe/Paris",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        });
+        const parisParts = parisFormatter.formatToParts(now);
+        const year = parisParts.find(p => p.type === "year")!.value;
+        const month = parisParts.find(p => p.type === "month")!.value;
+        const day = parisParts.find(p => p.type === "day")!.value;
+        const todayStr = `${year}-${month}-${day}`;
+
+        const dayFormatter = new Intl.DateTimeFormat("fr-FR", {
+            timeZone: "Europe/Paris",
+            weekday: "long",
+        });
+        const dayName = dayFormatter.format(now);
 
         console.log(`Morning summary for ${todayStr} (${dayName})`);
 
@@ -71,9 +85,15 @@ Deno.serve(async (req) => {
                 const sorted = (appointments as any[]).sort((a: any, b: any) =>
                     new Date(a.debut).getTime() - new Date(b.debut).getTime()
                 );
+                const timeFormatter = new Intl.DateTimeFormat("fr-FR", {
+                    timeZone: "Europe/Paris",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                });
                 for (const apt of sorted.slice(0, 5)) {
                     const start = new Date(apt.debut);
-                    const heure = `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+                    const heure = timeFormatter.format(start);
                     const client = apt.clients?.[0];
                     const clientName = client
                         ? `${client.prenom || ""} ${client.nom || ""}`.trim() || client.raisonSociale || ""

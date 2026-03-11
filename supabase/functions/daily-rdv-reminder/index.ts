@@ -40,14 +40,28 @@ Deno.serve(async (req) => {
             vapidPrivateKey
         );
 
-        // Calculate tomorrow's date
+        // Calculate tomorrow's date in Europe/Paris timezone
         const now = new Date();
         const tomorrow = new Date(now);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = tomorrow.toISOString().split("T")[0];
 
-        const dayNames = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-        const dayName = dayNames[tomorrow.getDay()];
+        const parisFormatter = new Intl.DateTimeFormat("fr-FR", {
+            timeZone: "Europe/Paris",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        });
+        const parisParts = parisFormatter.formatToParts(tomorrow);
+        const year = parisParts.find(p => p.type === "year")!.value;
+        const month = parisParts.find(p => p.type === "month")!.value;
+        const day = parisParts.find(p => p.type === "day")!.value;
+        const tomorrowStr = `${year}-${month}-${day}`;
+
+        const dayFormatter = new Intl.DateTimeFormat("fr-FR", {
+            timeZone: "Europe/Paris",
+            weekday: "long",
+        });
+        const dayName = dayFormatter.format(tomorrow);
 
         console.log(`Fetching appointments for tomorrow: ${tomorrowStr} (${dayName})`);
 
