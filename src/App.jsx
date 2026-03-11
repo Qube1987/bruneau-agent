@@ -9,6 +9,7 @@ import { ComposeCard } from './components/ComposeCard';
 import NotificationPanel, { getNotifBadgeCount } from './components/NotificationPanel';
 import AgendaPanel from './components/AgendaPanel';
 import MyDayPanel from './components/MyDayPanel';
+import EmailPanel from './components/EmailPanel';
 import LoginScreen from './components/LoginScreen';
 
 const SUGGESTIONS = [
@@ -28,6 +29,7 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [showMyDay, setShowMyDay] = useState(false);
   const [showRdvConfirm, setShowRdvConfirm] = useState(false);
+  const [showEmails, setShowEmails] = useState(false);
   const [agendaData, setAgendaData] = useState({ allApts: [], tasks: [], setTasks: null });
   const chatRef = useRef(null);
   const inputRef = useRef(null);
@@ -44,6 +46,8 @@ export default function App() {
       setShowRdvConfirm(true);
     } else if (action === 'myday') {
       setShowMyDay(true);
+    } else if (action === 'emails') {
+      setShowEmails(true);
     }
     if (action) {
       window.history.replaceState({}, '', window.location.pathname);
@@ -162,6 +166,13 @@ export default function App() {
             </button>
           )}
           <button
+            className="header__action-btn"
+            onClick={() => setShowEmails(true)}
+            title="Emails"
+          >
+            📧
+          </button>
+          <button
             className="header__myday-btn"
             onClick={() => setShowMyDay(true)}
           >
@@ -243,6 +254,12 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Email Panel */}
+      <EmailPanel
+        visible={showEmails}
+        onClose={() => setShowEmails(false)}
+      />
 
       {/* Chat Area */}
       <div className={`chat ${isEmpty ? 'chat--empty' : ''}`} ref={chatRef}>
