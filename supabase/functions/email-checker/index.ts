@@ -131,16 +131,12 @@ class SimpleIMAP {
                 const uidMatch = result.match(/UID\s+(\d+)/);
                 const uid = uidMatch ? parseInt(uidMatch[1]) : seq;
 
-                // Extract headers from the HEADER.FIELDS part
-                const fromMatch = result.match(/From:\s*(.+?)(?:\r\n(?!\s))/i);
-                const subjectMatch = result.match(/Subject:\s*(.+?)(?:\r\n(?!\s))/i);
-                const dateMatch = result.match(/Date:\s*(.+?)(?:\r\n(?!\s))/i);
-                const messageIdMatch = result.match(/Message-ID:\s*(.+?)(?:\r\n(?!\s))/i);
-
-                let fromRaw = fromMatch ? fromMatch[1].trim() : "unknown";
-                const subject = subjectMatch ? decodeHeader(subjectMatch[1].trim()) : "(sans objet)";
-                const dateStr = dateMatch ? dateMatch[1].trim() : "";
-                const messageId = messageIdMatch ? messageIdMatch[1].trim() : `uid-${uid}`;
+                // Extract headers - use a proper function to handle multi-line folded headers
+                const fromRaw = extractHeader(result, "From") || "unknown";
+                const subjectRaw = extractHeader(result, "Subject");
+                const subject = subjectRaw ? decodeHeader(subjectRaw) : "(sans objet)";
+                const dateStr = extractHeader(result, "Date") || "";
+                const messageId = extractHeader(result, "Message-ID") || `uid-${uid}`;
 
                 // Parse From field
                 let fromName = "";
@@ -168,10 +164,18 @@ class SimpleIMAP {
                 }
 
                 // Detect encoding from the body content or headers
-                const contentTypeHeader = result.match(/Content-Type:[^\r\n]+/i)?.[0] || "";
                 const isQuotedPrintable = result.includes("quoted-printable");
                 const isBase64 = result.includes("Content-Transfer-Encoding: base64") ||
                     result.includes("content-transfer-encoding: base64");
+
+                // If body looks like multipart (contains boundaries), try to extract text/plain
+                if (bodyText && bodyText.includes("Content-Type:")) {
+                    // Find text/plain part within multipart body
+                    const textPlainMatch = bodyText.match(/Content-Type:\s*text\/plain[^]*?(?:\r\n\r\n|\n\n)([\s\S]*?)(?:--[-_=a-zA-Z0-9]+|$)/i);
+                    if (textPlainMatch && textPlainMatch[1]) {
+                        bodyText = textPlainMatch[1].trim();
+                    }
+                }
 
                 // Decode content
                 if (isBase64 && bodyText) {
@@ -180,8 +184,14 @@ class SimpleIMAP {
                     bodyText = decodeQuotedPrintable(bodyText);
                 }
 
-                // Clean up
+                // Clean up: strip MIME artifacts, HTML, URLs
                 bodyText = bodyText
+                    .replace(/--[-_=a-zA-Z0-9]{20,}\s*/g, '')  // Strip MIME boundaries
+                    .replace(/Content-[A-Za-z-]+:\s*[^\r\n]+[\r\n]*/gi, '')  // Strip Content-* headers
+                    .replace(/=\r?\n/g, '')  // QP soft line breaks (in case missed)
+                    .replace(/=[0-9A-Fa-f]{2}/g, (m) => {  // Decode remaining QP
+                        try { return String.fromCharCode(parseInt(m.slice(1), 16)); } catch { return m; }
+                    })
                     .replace(/<[^>]*>/g, ' ')      // Strip HTML tags
                     .replace(/&[a-z]+;/gi, ' ')     // Strip HTML entities
                     .replace(/https?:\/\/\S+/g, '')  // Strip URLs
@@ -223,6 +233,16 @@ class SimpleIMAP {
             this.conn?.close();
         } catch { }
     }
+}
+
+// Extract a header value, handling RFC 2822 folding (continuation lines starting with space/tab)
+function extractHeader(raw: string, headerName: string): string | null {
+    // Match the header name followed by its value, including folded continuation lines
+    const regex = new RegExp(`${headerName}:\\s*(.+(?:\\r\\n[ \\t]+.+)*)`, "i");
+    const match = raw.match(regex);
+    if (!match) return null;
+    // Unfold: replace \r\n followed by whitespace with a single space
+    return match[1].replace(/\r\n[ \t]+/g, " ").trim();
 }
 
 // Decode MIME encoded headers (=?UTF-8?B?...?= or =?UTF-8?Q?...?=)
@@ -422,6 +442,13 @@ Deno.serve(async (req) => {
         try { body = await req.json(); } catch { }
         if (body?.reanalyze) {
             return await reanalyzeEmails(db);
+        }
+        // Refetch mode: delete all emails and re-download from IMAP
+        if (body?.refetch) {
+            console.log("[Refetch] Deleting all existing emails to re-fetch...");
+            await db.from("email_messages").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+            await db.from("email_senders").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+            console.log("[Refetch] DB cleared, will re-fetch all unseen emails...");
         }
 
         const { data: accounts, error: accErr } = await db

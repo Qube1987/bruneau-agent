@@ -312,12 +312,22 @@ export default function EmailPanel({ visible, onClose }) {
                                                         <span>Boîte : {email.account_email}</span>
                                                     </div>
 
-                                                    {email.body_preview && (
-                                                        <div className="email-panel__email-preview">
-                                                            <h4>Aperçu du contenu</h4>
-                                                            <p>{email.body_preview}</p>
+                                                    {email.ai_summary && email.ai_summary !== email.subject && (
+                                                        <div className="email-panel__ai-summary">
+                                                            <span className="email-panel__ai-label">🤖 Résumé IA</span>
+                                                            <p>{email.ai_summary}</p>
                                                         </div>
                                                     )}
+
+                                                    <div className="email-panel__email-content">
+                                                        <h4>📄 Contenu</h4>
+                                                        <div className="email-panel__email-text">
+                                                            {email.body_preview
+                                                                ? email.body_preview
+                                                                : <span className="email-panel__no-content">Contenu non disponible — sera récupéré au prochain check</span>
+                                                            }
+                                                        </div>
+                                                    </div>
 
                                                     {email.draft_reply && (
                                                         <div className="email-panel__draft">
