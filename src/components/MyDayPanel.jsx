@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useWeather } from '../hooks/useWeather';
 import {
-    isSameDay, formatTime, detectConflicts, findFreeSlots, formatSlotTime,
+    isSameDay, formatTime, findFreeSlots, formatSlotTime,
     generateBriefing, computeTravelTimes,
 } from '../utils/agendaUtils';
 
@@ -63,8 +63,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks,
         computeTravelTimes(dayApts).then(setTravelTimes).catch(() => setTravelTimes([]));
     }, [visible, dayOffset, allApts]);
 
-    // Conflicts
-    const conflicts = detectConflicts(dayApts);
+
 
     // Free slots
     const freeSlots = findFreeSlots(dayApts, 8, 18, 60);
@@ -157,12 +156,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks,
                                 <span className="myday-stat__label">En retard</span>
                             </div>
                         )}
-                        {conflicts.length > 0 && (
-                            <div className="myday-stat myday-stat--danger">
-                                <span className="myday-stat__num">{conflicts.length}</span>
-                                <span className="myday-stat__label">Conflits</span>
-                            </div>
-                        )}
+
                     </div>
 
                     {/* Briefing (today only) */}
@@ -174,20 +168,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks,
                     )}
 
                     <div className="myday-body">
-                        {/* Conflict warnings */}
-                        {conflicts.length > 0 && (
-                            <div className="myday-section">
-                                <div className="myday-section-title myday-section-title--danger">{'\u26A0'} Conflits horaires</div>
-                                {conflicts.map((c, i) => (
-                                    <div key={i} className="myday-conflict">
-                                        <strong>{formatTime(c.apt1._start)}</strong> {c.apt1._clientName || c.apt1._objet}
-                                        {' '}vs{' '}
-                                        <strong>{formatTime(c.apt2._start)}</strong> {c.apt2._clientName || c.apt2._objet}
-                                        <span className="myday-conflict__overlap"> ({c.overlapMinutes}min chevauchement)</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+
 
                         {/* Next appointment highlight */}
                         {(currentApt || upcomingApt) && (
