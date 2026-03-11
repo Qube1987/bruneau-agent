@@ -151,7 +151,6 @@ export default function App() {
       <header className="header">
         <div className="header__brand">
           <div className="header__logo">🤖</div>
-          <div className="header__title">Bruneau Agent</div>
         </div>
         <div className="header__actions">
           <button
