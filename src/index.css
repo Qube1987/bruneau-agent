@@ -5305,18 +5305,30 @@ body {
 .email-panel__swipe-bg {
   position: absolute;
   top: 0;
-  right: 0;
   bottom: 0;
   width: 100%;
-  background: linear-gradient(90deg, transparent 50%, #e74c3c 75%, #c0392b 100%);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 24px;
   gap: 8px;
   border-radius: var(--radius-sm);
   pointer-events: none;
   z-index: 0;
+}
+
+/* Left swipe → Archive (red, aligned right) */
+.email-panel__swipe-bg--left {
+  right: 0;
+  background: linear-gradient(90deg, transparent 50%, #e74c3c 75%, #c0392b 100%);
+  justify-content: flex-end;
+  padding-right: 24px;
+}
+
+/* Right swipe → Reclassify (blue, aligned left) */
+.email-panel__swipe-bg--right {
+  left: 0;
+  background: linear-gradient(270deg, transparent 50%, #6c5ce7 75%, #4834d4 100%);
+  justify-content: flex-start;
+  padding-left: 24px;
 }
 
 .email-panel__swipe-icon {

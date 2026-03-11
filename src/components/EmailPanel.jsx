@@ -4,31 +4,32 @@ import { supabase } from '../lib/supabase';
 /**
  * EmailPanel — Full-screen overlay for email management
  * Shows important emails, draft replies, and newsletter management
- * Supports swipe-left to dismiss emails
+ * Supports swipe-left to dismiss, swipe-right to reclassify
  */
 
-// Swipeable email item component
-function SwipeableEmail({ email, children, onDismiss }) {
+// Swipeable email item component — supports left (dismiss) and right (reclassify)
+function SwipeableEmail({ email, children, onDismiss, onReclassify }) {
     const ref = useRef(null);
     const startX = useRef(0);
     const currentX = useRef(0);
     const swiping = useRef(false);
     const [offset, setOffset] = useState(0);
-    const [dismissing, setDismissing] = useState(false);
+    const [animating, setAnimating] = useState(false); // 'left' | 'right' | false
 
     const SWIPE_THRESHOLD = 100;
 
     const handleTouchStart = (e) => {
+        if (animating) return;
         startX.current = e.touches[0].clientX;
         currentX.current = startX.current;
         swiping.current = true;
     };
 
     const handleMouseDown = (e) => {
+        if (animating) return;
         startX.current = e.clientX;
         currentX.current = startX.current;
         swiping.current = true;
-        // Attach mouse listeners to window for smooth tracking
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
     };
@@ -37,19 +38,14 @@ function SwipeableEmail({ email, children, onDismiss }) {
         if (!swiping.current) return;
         currentX.current = e.touches[0].clientX;
         const diff = currentX.current - startX.current;
-        // Only allow left swipe (negative diff)
-        if (diff < 0) {
-            setOffset(diff);
-        }
+        setOffset(diff); // Allow both directions
     };
 
     const handleMouseMove = (e) => {
         if (!swiping.current) return;
         currentX.current = e.clientX;
         const diff = currentX.current - startX.current;
-        if (diff < 0) {
-            setOffset(diff);
-        }
+        setOffset(diff);
     };
 
     const handleEnd = () => {
@@ -58,11 +54,18 @@ function SwipeableEmail({ email, children, onDismiss }) {
         window.removeEventListener('mouseup', handleMouseUp);
 
         if (offset < -SWIPE_THRESHOLD) {
-            // Dismiss: animate offscreen
-            setDismissing(true);
+            // Swipe LEFT → Dismiss/Archive
+            setAnimating('left');
             setOffset(-window.innerWidth);
+            setTimeout(() => onDismiss(email.id), 300);
+        } else if (offset > SWIPE_THRESHOLD) {
+            // Swipe RIGHT → Reclassify
+            setAnimating('right');
+            setOffset(window.innerWidth);
             setTimeout(() => {
-                onDismiss(email.id);
+                onReclassify(email);
+                setOffset(0);
+                setAnimating(false);
             }, 300);
         } else {
             // Spring back
@@ -73,19 +76,32 @@ function SwipeableEmail({ email, children, onDismiss }) {
     const handleTouchEnd = handleEnd;
     const handleMouseUp = handleEnd;
 
-    const progress = Math.min(Math.abs(offset) / SWIPE_THRESHOLD, 1);
+    const leftProgress = offset < 0 ? Math.min(Math.abs(offset) / SWIPE_THRESHOLD, 1) : 0;
+    const rightProgress = offset > 0 ? Math.min(offset / SWIPE_THRESHOLD, 1) : 0;
+    const isNewsletter = email.is_newsletter;
 
     return (
         <div
-            className={`email-panel__swipe-container ${dismissing ? 'email-panel__swipe-container--dismissing' : ''}`}
+            className={`email-panel__swipe-container ${animating === 'left' ? 'email-panel__swipe-container--dismissing' : ''}`}
         >
-            {/* Background revealed by swipe */}
+            {/* LEFT background (dismiss/archive) — red */}
             <div
-                className="email-panel__swipe-bg"
-                style={{ opacity: progress }}
+                className="email-panel__swipe-bg email-panel__swipe-bg--left"
+                style={{ opacity: leftProgress }}
             >
                 <span className="email-panel__swipe-icon">🗑️</span>
                 <span className="email-panel__swipe-label">Archiver</span>
+            </div>
+
+            {/* RIGHT background (reclassify) — blue/green */}
+            <div
+                className="email-panel__swipe-bg email-panel__swipe-bg--right"
+                style={{ opacity: rightProgress }}
+            >
+                <span className="email-panel__swipe-label">
+                    {isNewsletter ? '⭐ Important' : '📰 Newsletter'}
+                </span>
+                <span className="email-panel__swipe-icon">🔀</span>
             </div>
 
             {/* Foreground (the actual email card) */}
@@ -152,6 +168,37 @@ export default function EmailPanel({ visible, onClose }) {
             .from('email_messages')
             .update({ dismissed: true })
             .eq('id', emailId);
+    };
+
+    const reclassifyEmail = async (email) => {
+        const wasNewsletter = email.is_newsletter;
+        // Optimistic update: toggle locally
+        setEmails(prev => prev.map(e => {
+            if (e.id !== email.id) return e;
+            return {
+                ...e,
+                is_newsletter: !wasNewsletter,
+                is_important: wasNewsletter, // if was NL → now important, if was important → now NL
+            };
+        }));
+        // Update in DB
+        await supabase
+            .from('email_messages')
+            .update({
+                is_newsletter: !wasNewsletter,
+                is_important: wasNewsletter,
+                needs_reply: wasNewsletter ? true : false, // if reclassified as important, might need reply
+            })
+            .eq('id', email.id);
+        // Also update sender classification
+        await supabase
+            .from('email_senders')
+            .upsert({
+                sender_email: email.from_email,
+                sender_name: email.from_name,
+                is_newsletter: !wasNewsletter,
+                classification: wasNewsletter ? 'allowed' : 'pending',
+            }, { onConflict: 'sender_email' });
     };
 
     const handleSenderDecision = async (senderEmail, decision) => {
@@ -275,7 +322,7 @@ export default function EmailPanel({ visible, onClose }) {
 
                 {/* Swipe hint (shown briefly) */}
                 <div className="email-panel__swipe-hint">
-                    ← Glissez un email vers la gauche pour l'archiver
+                    ← Archiver &nbsp;|&nbsp; Reclassifier →
                 </div>
 
                 {/* Pending newsletter decisions banner */}
@@ -381,6 +428,7 @@ export default function EmailPanel({ visible, onClose }) {
                                             key={email.id}
                                             email={email}
                                             onDismiss={dismissEmail}
+                                            onReclassify={reclassifyEmail}
                                         >
                                             <div
                                                 className={`email-panel__email ${isExpanded ? 'email-panel__email--expanded' : ''} ${email.needs_reply ? 'email-panel__email--needs-reply' : ''} ${email.is_newsletter ? 'email-panel__email--newsletter' : ''}`}
