@@ -136,40 +136,48 @@ export default function CreateAptModal({ onClose, userCode }) {
                     });
                 }
 
-                // Also search Extrabat (use first word only — Extrabat API may not handle multi-word well)
+                // Also search Extrabat (use full-text search param q= like agent-orchestrator)
                 try {
                     const res = await fetch(PROXY_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': token },
-                        body: JSON.stringify({ endpoint: 'clients', apiVersion: 'v2', params: { nomraisonsociale: searchWord } }),
+                        body: JSON.stringify({
+                            endpoint: `clients?q=${encodeURIComponent(q)}&include=telephone,adresse`,
+                            apiVersion: 'v2',
+                        }),
                     });
                     const data = await res.json();
-                    if (data.success && Array.isArray(data.data)) {
-                        data.data.forEach(c => {
-                            // Skip duplicates already found in Supabase
-                            if (results.some(r => r.extrabatId && r.extrabatId === c.id)) return;
-                            // Client-side filter: only keep results that actually match the typed query
-                            const extName = (c.nomraisonsociale || c.nom || '').toLowerCase();
-                            if (!wordsLower.some(w => extName.includes(w))) return;
-                            if (results.length >= 8) return; // cap total results
-                            const addr = [c.adresse, c.codePostal, c.ville].filter(Boolean).join(', ');
-                            results.push({
-                                name: c.nomraisonsociale || c.nom || '',
-                                address: addr,
-                                extrabatId: c.id,
-                                supabaseId: null,
-                                source: 'extrabat',
-                                _raw: {
-                                    nom: c.nomraisonsociale || c.nom || '',
-                                    adresse: c.adresse || '',
-                                    code_postal: c.codePostal || '',
-                                    ville: c.ville || '',
-                                    telephone: c.telephone || c.telephones?.[0]?.numero || '',
-                                    email: c.email || '',
-                                },
-                            });
+                    const extClients = data.success
+                        ? (Array.isArray(data.data) ? data.data : (data.data?.data || []))
+                        : [];
+                    extClients.slice(0, 8).forEach(c => {
+                        // Skip duplicates already found in Supabase
+                        if (results.some(r => r.extrabatId && r.extrabatId === c.id)) return;
+                        if (results.length >= 8) return;
+
+                        // v2 API: addresses and phones are arrays
+                        const firstAddr = c.adresses?.[0] || {};
+                        const addr = [firstAddr.description || firstAddr.adresse || firstAddr.rue || '',
+                        firstAddr.codePostal || '', firstAddr.ville || ''].filter(Boolean).join(', ');
+                        const phone = c.telephones?.[0]?.number || c.telephones?.[0]?.numero || c.telephone || '';
+                        const fullName = [c.prenom, c.nom].filter(Boolean).join(' ') || c.raisonSociale || '';
+
+                        results.push({
+                            name: fullName,
+                            address: addr,
+                            extrabatId: c.id,
+                            supabaseId: null,
+                            source: 'extrabat',
+                            _raw: {
+                                nom: c.nom || c.raisonSociale || '',
+                                adresse: firstAddr.description || firstAddr.adresse || firstAddr.rue || '',
+                                code_postal: firstAddr.codePostal || '',
+                                ville: firstAddr.ville || '',
+                                telephone: phone,
+                                email: c.email || '',
+                            },
                         });
-                    }
+                    });
                 } catch (extErr) {
                     console.warn('[CreateApt] Extrabat search failed:', extErr);
                 }
