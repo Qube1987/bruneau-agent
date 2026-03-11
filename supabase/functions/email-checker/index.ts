@@ -113,76 +113,95 @@ class SimpleIMAP {
         return nums.filter(n => !isNaN(n));
     }
 
-    async fetchHeaders(seqNums: number[]): Promise<any[]> {
+    async fetchEmails(seqNums: number[]): Promise<any[]> {
         const emails: any[] = [];
         if (seqNums.length === 0) return emails;
 
-        // Fetch in batches, limited to latest 20
+        // Fetch latest 20 max
         const toFetch = seqNums.slice(-20);
-        const seqSet = toFetch.join(",");
 
-        const result = await this.command(
-            `FETCH ${seqSet} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] BODY.PEEK[TEXT]<0.4000>)`
-        );
+        // Fetch one by one for reliability
+        for (const seq of toFetch) {
+            try {
+                const result = await this.command(
+                    `FETCH ${seq} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID CONTENT-TYPE)] BODY.PEEK[1]<0.8000>)`
+                );
 
-        // Parse the FETCH responses
-        const fetchBlocks = result.split(/\* \d+ FETCH/);
+                // Extract UID
+                const uidMatch = result.match(/UID\s+(\d+)/);
+                const uid = uidMatch ? parseInt(uidMatch[1]) : seq;
 
-        for (const block of fetchBlocks) {
-            if (!block.trim()) continue;
+                // Extract headers from the HEADER.FIELDS part
+                const fromMatch = result.match(/From:\s*(.+?)(?:\r\n(?!\s))/i);
+                const subjectMatch = result.match(/Subject:\s*(.+?)(?:\r\n(?!\s))/i);
+                const dateMatch = result.match(/Date:\s*(.+?)(?:\r\n(?!\s))/i);
+                const messageIdMatch = result.match(/Message-ID:\s*(.+?)(?:\r\n(?!\s))/i);
 
-            // Extract UID
-            const uidMatch = block.match(/UID\s+(\d+)/);
-            const uid = uidMatch ? parseInt(uidMatch[1]) : 0;
+                let fromRaw = fromMatch ? fromMatch[1].trim() : "unknown";
+                const subject = subjectMatch ? decodeHeader(subjectMatch[1].trim()) : "(sans objet)";
+                const dateStr = dateMatch ? dateMatch[1].trim() : "";
+                const messageId = messageIdMatch ? messageIdMatch[1].trim() : `uid-${uid}`;
 
-            // Extract headers
-            const headerSection = block;
-            const fromMatch = headerSection.match(/From:\s*(.+?)(?:\r\n(?!\s)|\r\n\))/i);
-            const subjectMatch = headerSection.match(/Subject:\s*(.+?)(?:\r\n(?!\s)|\r\n\))/i);
-            const dateMatch = headerSection.match(/Date:\s*(.+?)(?:\r\n(?!\s)|\r\n\))/i);
-            const messageIdMatch = headerSection.match(/Message-ID:\s*(.+?)(?:\r\n(?!\s)|\r\n\))/i);
+                // Parse From field
+                let fromName = "";
+                let fromEmail = "unknown";
+                const emailInAngle = fromRaw.match(/<([^>]+)>/);
+                if (emailInAngle) {
+                    fromEmail = emailInAngle[1];
+                    fromName = decodeHeader(fromRaw.replace(/<[^>]+>/, "").replace(/\"/g, "").trim());
+                } else if (fromRaw.includes("@")) {
+                    fromEmail = fromRaw.trim();
+                    fromName = fromEmail;
+                }
+                if (!fromName) fromName = fromEmail;
 
-            let fromRaw = fromMatch ? fromMatch[1].trim() : "unknown";
-            const subject = subjectMatch ? decodeHeader(subjectMatch[1].trim()) : "(sans objet)";
-            const dateStr = dateMatch ? dateMatch[1].trim() : "";
-            const messageId = messageIdMatch ? messageIdMatch[1].trim() : `uid-${uid}`;
+                // Extract body text from BODY[1] (text/plain part)
+                let bodyText = "";
+                // Find the literal {size} marker for BODY[1]
+                const bodyLiteralMatch = result.match(/BODY\[1\](?:<\d+>)?\s*\{(\d+)\}/i);
+                if (bodyLiteralMatch) {
+                    const literalStart = result.indexOf(bodyLiteralMatch[0]) + bodyLiteralMatch[0].length;
+                    // Skip the \r\n after {size}
+                    const contentStart = result.indexOf("\r\n", literalStart) + 2;
+                    const size = parseInt(bodyLiteralMatch[1]);
+                    bodyText = result.substring(contentStart, contentStart + size);
+                }
 
-            // Parse From field
-            let fromName = "";
-            let fromEmail = "unknown";
-            const emailInAngle = fromRaw.match(/<([^>]+)>/);
-            if (emailInAngle) {
-                fromEmail = emailInAngle[1];
-                fromName = decodeHeader(fromRaw.replace(/<[^>]+>/, "").replace(/"/g, "").trim());
-            } else if (fromRaw.includes("@")) {
-                fromEmail = fromRaw.trim();
-                fromName = fromEmail;
-            }
-            if (!fromName) fromName = fromEmail;
+                // Detect encoding from the body content or headers
+                const contentTypeHeader = result.match(/Content-Type:[^\r\n]+/i)?.[0] || "";
+                const isQuotedPrintable = result.includes("quoted-printable");
+                const isBase64 = result.includes("Content-Transfer-Encoding: base64") ||
+                    result.includes("content-transfer-encoding: base64");
 
-            // Extract body text (rough)
-            let bodyText = "";
-            const bodyPeekMatch = block.match(/BODY\[TEXT\]<0>/i);
-            if (bodyPeekMatch) {
-                const afterBody = block.substring(block.indexOf("BODY[TEXT]"));
-                const bodyContent = afterBody.replace(/^BODY\[TEXT\][^{]*\{(\d+)\}\r\n/i, "");
-                bodyText = bodyContent.substring(0, 3000)
-                    .replace(/<[^>]*>/g, ' ')
-                    .replace(/&[a-z]+;/gi, ' ')
-                    .replace(/\s+/g, ' ')
+                // Decode content
+                if (isBase64 && bodyText) {
+                    bodyText = decodeBase64(bodyText.replace(/\s+/g, ''));
+                } else if (isQuotedPrintable && bodyText) {
+                    bodyText = decodeQuotedPrintable(bodyText);
+                }
+
+                // Clean up
+                bodyText = bodyText
+                    .replace(/<[^>]*>/g, ' ')      // Strip HTML tags
+                    .replace(/&[a-z]+;/gi, ' ')     // Strip HTML entities
+                    .replace(/https?:\/\/\S+/g, '')  // Strip URLs
+                    .replace(/\s+/g, ' ')            // Normalize whitespace
                     .trim();
-            }
 
-            if (uid > 0 || fromEmail !== "unknown") {
-                emails.push({
-                    uid,
-                    messageId,
-                    fromEmail,
-                    fromName,
-                    subject,
-                    bodyText: bodyText.substring(0, 3000),
-                    date: dateStr ? new Date(dateStr) : new Date(),
-                });
+                if (uid > 0 || fromEmail !== "unknown") {
+                    emails.push({
+                        uid,
+                        seqNum: seq,
+                        messageId,
+                        fromEmail,
+                        fromName,
+                        subject,
+                        bodyText: bodyText.substring(0, 3000),
+                        date: dateStr ? new Date(dateStr) : new Date(),
+                    });
+                }
+            } catch (fetchErr: any) {
+                console.error(`[IMAP] Error fetching seq ${seq}:`, fetchErr.message);
             }
         }
 
@@ -209,16 +228,43 @@ class SimpleIMAP {
 // Decode MIME encoded headers (=?UTF-8?B?...?= or =?UTF-8?Q?...?=)
 function decodeHeader(str: string): string {
     if (!str) return str;
-    return str.replace(/=\?([^?]+)\?([BbQq])\?([^?]+)\?=/g, (_match, _charset, encoding, data) => {
+    return str.replace(/=\?([^?]+)\?([BbQq])\?([^?]+)\?=/g, (_match, charset, encoding, data) => {
         try {
             if (encoding.toUpperCase() === 'B') {
-                return atob(data);
+                const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+                return new TextDecoder(charset || 'utf-8').decode(bytes);
             } else if (encoding.toUpperCase() === 'Q') {
-                return data.replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16))).replace(/_/g, ' ');
+                const decoded = data
+                    .replace(/_/g, ' ')
+                    .replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) =>
+                        String.fromCharCode(parseInt(hex, 16)));
+                const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+                return new TextDecoder(charset || 'utf-8').decode(bytes);
             }
         } catch { }
         return data;
     });
+}
+
+// Decode quoted-printable content
+function decodeQuotedPrintable(str: string): string {
+    return str
+        .replace(/=\r?\n/g, '')  // Soft line breaks
+        .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => {
+            const byte = parseInt(hex, 16);
+            return String.fromCharCode(byte);
+        });
+}
+
+// Decode base64 content
+function decodeBase64(str: string): string {
+    try {
+        const clean = str.replace(/[\r\n\s]/g, '');
+        const bytes = Uint8Array.from(atob(clean), c => c.charCodeAt(0));
+        return new TextDecoder('utf-8').decode(bytes);
+    } catch {
+        return str;
+    }
 }
 
 // ============================================================
@@ -236,23 +282,36 @@ async function analyzeEmailWithGemini(subject: string, body: string, fromName: s
         return basicAnalysis(subject, body, fromEmail);
     }
 
-    const prompt = `Tu es l'assistant email de Quentin Bruneau, gérant de Bruneau Protection (sécurité : alarmes, vidéosurveillance, contrôle d'accès).
+    const prompt = `Tu es l'assistant email de Quentin Bruneau, gérant de Bruneau Protection (sécurité/alarmes/vidéosurveillance en Normandie).
 
-Analyse cet email et réponds en JSON strict (pas de markdown) :
+ANALYSE cet email. Réponds UNIQUEMENT en JSON, sans aucun markdown ni texte autour.
 
-De : ${fromName} <${fromEmail}>
+Expéditeur : ${fromName} <${fromEmail}>
 Objet : ${subject}
-Contenu : ${body.substring(0, 2000)}
+Contenu (peut être vide ou partiel) : ${body.substring(0, 2500)}
 
-Format JSON exact :
-{"isNewsletter":false,"isImportant":true,"needsReply":true,"summary":"résumé concis","draftReply":"brouillon ou null"}
+FORMAT EXACT :
+{"isNewsletter":bool,"isImportant":bool,"needsReply":bool,"summary":"résumé 1-2 phrases en français","draftReply":"brouillon ou null"}
 
-Règles :
-- isNewsletter = true pour newsletters, promos, mailings, notifs automatiques
-- isImportant = true pour emails clients, fournisseurs, urgences SAV, devis, emails personnels importants
-- needsReply = true si une réponse est attendue (question, demande de rappel, devis, réclamation)
-- Pour le brouillon : vouvoiement clients, signature "Cordialement, Quentin Bruneau - Bruneau Protection"
-- Pas de brouillon pour newsletters`;
+CLASSIFICATION — Indices de NEWSLETTER (isNewsletter=true) :
+- Adresse contenant : noreply, no-reply, newsletter, info@, webmaster@, notif, contact@...service
+- Sujets contenant : "nouveautés", "découvrez", "offre", "promo", "actualités", "security alert"
+- Emails de services SaaS (Supabase, GitHub, Google, etc.)
+- Messagerie vocale orange, notifications automatiques
+- Tout ce qui est envoyé en masse sans attendre de réponse personnelle
+- Fournisseurs envoyant des catalogues/promos (ex: Francofa Eurodis, Les Echos)
+
+CLASSIFICATION — Emails IMPORTANTS (isNewsletter=false, isImportant=true) :
+- Clients particuliers (orange.fr, yahoo.fr, gmail.com) qui écrivent personnellement
+- Fournisseurs avec sujet spécifique (facture, commande, devis)
+- Comptable (fiteco), gestionnaire immobilier, mairie
+- Collègues/employés (Hugo, etc.)
+- Demandes de devis, questions sur alarmes
+
+needsReply=true UNIQUEMENT si l'expéditeur attend clairement une réponse (question directe, demande de devis, demande de rappel).
+
+summary : résumé utile en français. Si contenu vide, résume à partir du sujet ET de l'expéditeur.
+draftReply : brouillon SEULEMENT si needsReply=true. Vouvoiement. Signature "Cordialement, Quentin Bruneau - Bruneau Protection". null sinon.`;
 
     try {
         const response = await fetch(
@@ -262,15 +321,19 @@ Règles :
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
                 }),
             }
         );
 
-        if (!response.ok) return basicAnalysis(subject, body, fromEmail);
+        if (!response.ok) {
+            console.error(`[AI] Gemini HTTP ${response.status}: ${await response.text()}`);
+            return basicAnalysis(subject, body, fromEmail);
+        }
 
         const result = await response.json();
         const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        console.log(`[AI] Gemini for "${subject}": ${text.substring(0, 200)}`);
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
@@ -293,10 +356,16 @@ function basicAnalysis(subject: string, body: string, fromEmail: string) {
     const bl = (body || "").toLowerCase();
     const fe = fromEmail.toLowerCase();
 
-    const nlWords = ["unsubscribe", "désabonnement", "newsletter", "noreply", "no-reply", "marketing", "promotions", "notification@", "mailing"];
-    const isNL = nlWords.some(kw => fe.includes(kw) || sl.includes(kw) || bl.includes(kw));
+    // Strong newsletter signals in email address
+    const nlAddressPatterns = ["noreply", "no-reply", "newsletter", "notification@", "mailing", "webmaster@", "info-", "marketing", "promotions", "ne-pas-repondre", "nepas-repondre", "messagerievocale", "adhoc@info"];
+    const nlSubjectPatterns = ["nouveautés", "nouveautes", "découvrez", "decouvrez", "offre spéciale", "promo", "security vulnerabilities", "unsubscribe", "désabonnement"];
+    const nlBodyPatterns = ["unsubscribe", "désabonnement", "se désinscrire", "opt-out", "view in browser", "version en ligne"];
 
-    const impWords = ["urgent", "devis", "alarme", "panne", "intervention", "contrat", "facture", "réclamation"];
+    const isNL = nlAddressPatterns.some(kw => fe.includes(kw))
+        || nlSubjectPatterns.some(kw => sl.includes(kw))
+        || nlBodyPatterns.some(kw => bl.includes(kw));
+
+    const impWords = ["urgent", "devis", "alarme", "panne", "intervention", "contrat", "facture", "réclamation", "rappel"];
     const isImp = !isNL && impWords.some(kw => sl.includes(kw) || bl.includes(kw));
 
     return {
@@ -348,6 +417,13 @@ Deno.serve(async (req) => {
     try {
         const db = getDB();
 
+        // Check for reanalyze mode (re-classify existing emails with Gemini)
+        let body: any = {};
+        try { body = await req.json(); } catch { }
+        if (body?.reanalyze) {
+            return await reanalyzeEmails(db);
+        }
+
         const { data: accounts, error: accErr } = await db
             .from("email_accounts").select("*").eq("enabled", true);
         if (accErr) throw new Error(`Accounts error: ${accErr.message}`);
@@ -389,8 +465,8 @@ Deno.serve(async (req) => {
                 console.log(`[IMAP] Found ${unseenSeqs.length} unseen email(s)`);
 
                 if (unseenSeqs.length > 0) {
-                    emails = await imap.fetchHeaders(unseenSeqs);
-                    console.log(`[IMAP] Fetched ${emails.length} email headers`);
+                    emails = await imap.fetchEmails(unseenSeqs);
+                    console.log(`[IMAP] Fetched ${emails.length} emails`);
                 }
 
                 // Track sequence numbers to mark as read for blocked senders
@@ -514,3 +590,50 @@ Deno.serve(async (req) => {
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 });
+
+// ============================================================
+// Re-analyze existing emails with Gemini
+// ============================================================
+async function reanalyzeEmails(db: any) {
+    const { data: emails, error } = await db
+        .from("email_messages")
+        .select("id, from_name, from_email, subject, body_preview")
+        .order("received_at", { ascending: false })
+        .limit(50);
+
+    if (error) throw new Error(`Reanalyze query error: ${error.message}`);
+    if (!emails?.length) {
+        return new Response(JSON.stringify({ success: true, reanalyzed: 0 }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    let reanalyzed = 0;
+    for (const email of emails) {
+        const analysis = await analyzeEmailWithGemini(
+            email.subject, email.body_preview || "", email.from_name, email.from_email
+        );
+
+        await db.from("email_messages").update({
+            is_newsletter: analysis.isNewsletter,
+            is_important: analysis.isImportant,
+            needs_reply: analysis.needsReply,
+            ai_summary: analysis.summary,
+            draft_reply: analysis.draftReply,
+        }).eq("id", email.id);
+
+        // Update sender classification too
+        await db.from("email_senders").upsert({
+            sender_email: email.from_email,
+            sender_name: email.from_name,
+            classification: analysis.isNewsletter ? 'pending' : 'allowed',
+            is_newsletter: analysis.isNewsletter,
+        }, { onConflict: 'sender_email' });
+
+        reanalyzed++;
+        console.log(`[Reanalyze] "${email.subject}" => NL:${analysis.isNewsletter} IMP:${analysis.isImportant} REPLY:${analysis.needsReply}`);
+        await new Promise(r => setTimeout(r, 500));
+    }
+
+    return new Response(JSON.stringify({ success: true, reanalyzed }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
