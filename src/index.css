@@ -4371,23 +4371,27 @@ body {
 
 /* ─── User button in header ─── */
 .header__user-btn {
-  width: 32px !important;
-  height: 32px !important;
-  min-width: 32px;
-  border-radius: var(--radius-full) !important;
-  background: linear-gradient(135deg, var(--accent), #a29bfe) !important;
-  color: white !important;
-  font-weight: 700 !important;
-  font-size: 0.85rem !important;
-  padding: 0 !important;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--accent), #a29bfe);
+  border: 2px solid rgba(162, 155, 254, 0.3);
+  color: white;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .header__user-btn:hover {
-  transform: scale(1.05);
+  transform: scale(1.08);
   filter: brightness(1.1);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 /* User dropdown menu */
