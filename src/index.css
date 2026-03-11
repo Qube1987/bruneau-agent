@@ -5212,3 +5212,21 @@ body {
   gap: 8px;
   margin-top: var(--space-sm);
 }
+
+/* Urgency tags for reply waiting */
+.email-panel__tag--warning {
+  background: rgba(253, 203, 110, 0.2);
+  color: var(--warning);
+}
+
+.email-panel__tag--urgent {
+  background: rgba(255, 107, 107, 0.2);
+  color: var(--danger);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.email-panel__reply-tracking {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--border);
+}

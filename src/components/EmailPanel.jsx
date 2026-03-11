@@ -71,6 +71,19 @@ export default function EmailPanel({ visible, onClose }) {
         fetchEmails();
     };
 
+    const markAsReplied = async (emailId) => {
+        await supabase
+            .from('email_messages')
+            .update({ replied_at: new Date().toISOString() })
+            .eq('id', emailId);
+        fetchEmails();
+    };
+
+    const daysWaiting = (receivedAt) => {
+        if (!receivedAt) return 0;
+        return Math.floor((Date.now() - new Date(receivedAt).getTime()) / (1000 * 60 * 60 * 24));
+    };
+
     const triggerManualCheck = async () => {
         setCheckingNow(true);
         try {
@@ -273,7 +286,14 @@ export default function EmailPanel({ visible, onClose }) {
                                                         <span className="email-panel__email-account">
                                                             {email.account_email === 'quentin@bruneau27.com' ? '👤 Quentin' : '🏢 Info'}
                                                         </span>
-                                                        {email.needs_reply && <span className="email-panel__tag email-panel__tag--reply">Réponse attendue</span>}
+                                                        {email.needs_reply && !email.replied_at && (() => {
+                                                            const days = daysWaiting(email.received_at);
+                                                            const urgencyClass = days >= 7 ? 'email-panel__tag--urgent' : days >= 3 ? 'email-panel__tag--warning' : 'email-panel__tag--reply';
+                                                            return <span className={`email-panel__tag ${urgencyClass}`}>
+                                                                {days >= 7 ? '🔴' : days >= 3 ? '🟡' : '💬'} {days > 0 ? `${days}j en attente` : 'Réponse attendue'}
+                                                            </span>;
+                                                        })()}
+                                                        {email.needs_reply && email.replied_at && <span className="email-panel__tag email-panel__tag--allowed">✅ Répondu</span>}
                                                         {email.is_newsletter && senderClass === 'pending' && <span className="email-panel__tag email-panel__tag--pending">À classer</span>}
                                                         {email.is_newsletter && senderClass === 'allowed' && <span className="email-panel__tag email-panel__tag--allowed">Autorisé</span>}
                                                         {email.is_newsletter && senderClass === 'blocked' && <span className="email-panel__tag email-panel__tag--blocked">Bloqué</span>}
@@ -322,6 +342,18 @@ export default function EmailPanel({ visible, onClose }) {
                                                                     </button>
                                                                 </div>
                                                             )}
+                                                        </div>
+                                                    )}
+
+                                                    {email.needs_reply && !email.replied_at && (
+                                                        <div className="email-panel__reply-tracking">
+                                                            <button
+                                                                className="email-panel__sender-btn email-panel__sender-btn--keep"
+                                                                onClick={(e) => { e.stopPropagation(); markAsReplied(email.id); }}
+                                                                style={{ marginTop: '8px' }}
+                                                            >
+                                                                ✅ Marquer comme répondu
+                                                            </button>
                                                         </div>
                                                     )}
 
