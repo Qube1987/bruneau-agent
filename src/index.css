@@ -3313,6 +3313,155 @@ body {
   color: var(--text-muted);
 }
 
+/* ── Team member selector ── */
+.apt-team-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+.apt-team-selector__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px 6px 10px;
+  min-height: 36px;
+}
+
+.apt-team-selector__selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+}
+
+.apt-team-selector__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 14px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--chip-color, #6c5ce7) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-color, #6c5ce7) 35%, transparent);
+  transition: all var(--transition-fast);
+}
+
+.apt-team-selector__chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.apt-team-selector__chip-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 0 0 2px;
+  line-height: 1;
+  opacity: 0.5;
+  transition: all var(--transition-fast);
+}
+
+.apt-team-selector__chip-remove:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.apt-team-selector__toggle {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.apt-team-selector__toggle:hover {
+  background: var(--bg-glass-hover);
+  color: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.apt-team-selector__toggle--active {
+  background: rgba(108, 92, 231, 0.15);
+  color: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.apt-team-selector__dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  animation: fadeInUp 150ms ease;
+}
+
+.apt-team-selector__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.apt-team-selector__option:hover {
+  background: rgba(108, 92, 231, 0.1);
+  color: var(--text-primary);
+}
+
+.apt-team-selector__option--active {
+  background: rgba(108, 92, 231, 0.12);
+  color: var(--text-primary);
+}
+
+.apt-team-selector__option-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.apt-team-selector__option-name {
+  flex: 1;
+  text-align: left;
+  font-weight: 500;
+}
+
+.apt-team-selector__option-check {
+  font-size: 12px;
+  color: var(--accent-light);
+  font-weight: 700;
+}
+
 /* Undo delete toast */
 .todo-toast {
   position: fixed;

@@ -4,6 +4,13 @@ import { supabase } from '../lib/supabase';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://rzxisqsdsiiuwaixnneo.supabase.co';
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/extrabat-proxy`;
 
+const TEAM_MEMBERS = [
+    { name: 'Quentin', code: '46516', color: '#6c5ce7' },
+    { name: 'Paul', code: '218599', color: '#00cec9' },
+    { name: 'Cindy', code: '47191', color: '#fdcb6e' },
+    { name: 'Téo', code: '485533', color: '#ff6b6b' },
+];
+
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function toLocalStr(d) {
@@ -41,6 +48,11 @@ export default function CreateAptModal({ onClose, userCode }) {
     const [extrabatClientId, setExtrabatClientId] = useState(null);
     const [supabaseClientId, setSupabaseClientId] = useState(null);
 
+    // Team member selection
+    const currentUserCode = userCode || '46516';
+    const [selectedCodes, setSelectedCodes] = useState([currentUserCode]);
+    const [showTeamPicker, setShowTeamPicker] = useState(false);
+
     // Client search state
     const [suggestions, setSuggestions] = useState([]);
     const [searching, setSearching] = useState(false);
@@ -50,6 +62,20 @@ export default function CreateAptModal({ onClose, userCode }) {
     const nameInputRef = useRef(null);
 
     const canSubmit = dateStart && dateEnd && (clientName.trim() || objet.trim());
+
+    const currentMember = TEAM_MEMBERS.find(m => m.code === currentUserCode) || TEAM_MEMBERS[0];
+    const otherMembers = TEAM_MEMBERS.filter(m => m.code !== currentUserCode);
+
+    const toggleTeamMember = (code) => {
+        setSelectedCodes(prev => {
+            if (prev.includes(code)) {
+                // Don't allow removing the last one
+                if (prev.length <= 1) return prev;
+                return prev.filter(c => c !== code);
+            }
+            return [...prev, code];
+        });
+    };
 
     // ── Auto-sync end = start + 1h ──
     const handleStartChange = (val) => {
@@ -187,7 +213,7 @@ export default function CreateAptModal({ onClose, userCode }) {
             // 1) Ensure client exists in Supabase for traceability
             const sbClientId = await ensureClientInSupabase();
 
-            // 2) Create RDV in Extrabat (linked to extrabat client ID)
+            // 2) Create RDV in Extrabat (linked to extrabat client ID, with all selected technicians)
             const startedAt = dateStart.replace('T', ' ') + ':00';
             const endedAt = dateEnd.replace('T', ' ') + ':00';
 
@@ -199,7 +225,7 @@ export default function CreateAptModal({ onClose, userCode }) {
                     'apikey': token,
                 },
                 body: JSON.stringify({
-                    technicianCodes: [userCode || '46516'],
+                    technicianCodes: selectedCodes,
                     interventionData: {
                         clientName: clientName.trim() || objet.trim(),
                         systemType: 'rdv',
@@ -223,7 +249,7 @@ export default function CreateAptModal({ onClose, userCode }) {
                     objet: objet.trim() || clientName.trim(),
                     started_at: startedAt,
                     ended_at: endedAt,
-                    created_by: userCode || null,
+                    created_by: selectedCodes.join(','),
                 };
                 if (logRow.extrabat_rdv_id) {
                     await supabase.from('rdv_logs').upsert(logRow, { onConflict: 'extrabat_rdv_id' })
@@ -247,6 +273,12 @@ export default function CreateAptModal({ onClose, userCode }) {
         }
     };
 
+    // Selected members summary for display
+    const selectedNames = selectedCodes.map(code => {
+        const m = TEAM_MEMBERS.find(tm => tm.code === code);
+        return m ? m.name : code;
+    });
+
     return (
         <div className="todo-modal-overlay" onClick={() => !submitting && onClose(false)}>
             <div className="todo-modal" onClick={e => e.stopPropagation()}>
@@ -255,6 +287,70 @@ export default function CreateAptModal({ onClose, userCode }) {
                     <button className="todo-modal__close" onClick={() => !submitting && onClose(false)}>{'\u2715'}</button>
                 </div>
                 <div className="todo-modal__body">
+                    {/* Team member selector */}
+                    <div className="apt-form__field">
+                        <label className="apt-form__label">Attribué à</label>
+                        <div className="apt-team-selector">
+                            <div className="apt-team-selector__main">
+                                <div className="apt-team-selector__selected">
+                                    {selectedCodes.map(code => {
+                                        const m = TEAM_MEMBERS.find(tm => tm.code === code);
+                                        if (!m) return null;
+                                        return (
+                                            <span
+                                                key={code}
+                                                className="apt-team-selector__chip"
+                                                style={{ '--chip-color': m.color }}
+                                            >
+                                                <span className="apt-team-selector__chip-dot" style={{ background: m.color }} />
+                                                {m.name}
+                                                {selectedCodes.length > 1 && (
+                                                    <button
+                                                        className="apt-team-selector__chip-remove"
+                                                        onClick={(e) => { e.stopPropagation(); toggleTeamMember(code); }}
+                                                        title={`Retirer ${m.name}`}
+                                                    >×</button>
+                                                )}
+                                            </span>
+                                        );
+                                    })}
+                                </div>
+                                <button
+                                    className={`apt-team-selector__toggle ${showTeamPicker ? 'apt-team-selector__toggle--active' : ''}`}
+                                    onClick={() => setShowTeamPicker(!showTeamPicker)}
+                                    title="Ajouter des membres"
+                                    type="button"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                        <circle cx="9" cy="7" r="4" />
+                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                    </svg>
+                                </button>
+                            </div>
+                            {showTeamPicker && (
+                                <div className="apt-team-selector__dropdown">
+                                    {otherMembers.map(m => {
+                                        const isSelected = selectedCodes.includes(m.code);
+                                        return (
+                                            <button
+                                                key={m.code}
+                                                className={`apt-team-selector__option ${isSelected ? 'apt-team-selector__option--active' : ''}`}
+                                                onClick={() => toggleTeamMember(m.code)}
+                                                type="button"
+                                            >
+                                                <span className="apt-team-selector__option-dot" style={{ background: m.color }} />
+                                                <span className="apt-team-selector__option-name">{m.name}</span>
+                                                {isSelected && <span className="apt-team-selector__option-check">✓</span>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     <div className="apt-form__field" style={{ position: 'relative' }}>
                         <label className="apt-form__label">Nom client</label>
                         <input
