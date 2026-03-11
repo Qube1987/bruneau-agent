@@ -151,82 +151,46 @@ export default function App() {
       <header className="header">
         <div className="header__brand">
           <div className="header__logo">🤖</div>
-          <div>
-            <div className="header__title">Bruneau Agent</div>
-            <div className="header__subtitle">Assistant vocal intelligent</div>
-          </div>
+          <div className="header__title">Bruneau Agent</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {messages.length > 0 && (
-            <button
-              onClick={clearConversation}
-              className="header__action-btn"
-            >
-              🗑️
-            </button>
-          )}
+        <div className="header__user-wrapper">
           <button
-            className="header__action-btn"
-            onClick={() => setShowEmails(true)}
-            title="Emails"
+            className="header__user-btn"
+            onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu); }}
+            title={currentUser.display_name}
           >
-            📧
+            {currentUser.display_name.charAt(0)}
           </button>
-          <button
-            className="header__myday-btn"
-            onClick={() => setShowMyDay(true)}
-          >
-            ☀️ Ma journée
-          </button>
-          <button
-            className="header__action-btn header__bell-btn"
-            onClick={() => setShowRdvConfirm(true)}
-            title="Notifications"
-          >
-            🔔
-            {getNotifBadgeCount(agendaData.tasks) > 0 && (
-              <span className="header__bell-badge">{getNotifBadgeCount(agendaData.tasks)}</span>
-            )}
-          </button>
-          <div className="header__user-wrapper">
-            <button
-              className="header__action-btn header__user-btn"
-              onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu); }}
-              title={currentUser.display_name}
-            >
-              {currentUser.display_name.charAt(0)}
-            </button>
-            {showUserMenu && (
-              <div className="header__dropdown" onClick={(e) => e.stopPropagation()}>
-                <div className="header__dropdown-name">{currentUser.display_name}</div>
-                <div className="header__dropdown-email">{currentUser.email}</div>
-                <div className="header__dropdown-divider" />
-                {isSupported && (
-                  <button
-                    className="header__dropdown-item"
-                    disabled={subscribing}
-                    onClick={async () => {
-                      if (isSubscribed) {
-                        await unsubscribe();
-                      } else {
-                        await subscribe();
-                      }
-                    }}
-                  >
-                    {subscribing
-                      ? '⏳ Activation...'
-                      : isSubscribed
-                        ? '🔔 Notifications activées'
-                        : '🔕 Activer les notifications'}
-                    {!subscribing && <span className={`header__dropdown-dot ${isSubscribed ? 'header__dropdown-dot--on' : ''}`} />}
-                  </button>
-                )}
-                <button className="header__dropdown-item header__dropdown-item--danger" onClick={signOut}>
-                  🚪 Se déconnecter
+          {showUserMenu && (
+            <div className="header__dropdown" onClick={(e) => e.stopPropagation()}>
+              <div className="header__dropdown-name">{currentUser.display_name}</div>
+              <div className="header__dropdown-email">{currentUser.email}</div>
+              <div className="header__dropdown-divider" />
+              {isSupported && (
+                <button
+                  className="header__dropdown-item"
+                  disabled={subscribing}
+                  onClick={async () => {
+                    if (isSubscribed) {
+                      await unsubscribe();
+                    } else {
+                      await subscribe();
+                    }
+                  }}
+                >
+                  {subscribing
+                    ? '⏳ Activation...'
+                    : isSubscribed
+                      ? '🔔 Notifications activées'
+                      : '🔕 Activer les notifications'}
+                  {!subscribing && <span className={`header__dropdown-dot ${isSubscribed ? 'header__dropdown-dot--on' : ''}`} />}
                 </button>
-              </div>
-            )}
-          </div>
+              )}
+              <button className="header__dropdown-item header__dropdown-item--danger" onClick={signOut}>
+                🚪 Se déconnecter
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -327,6 +291,41 @@ export default function App() {
             Écoute en cours... {currentText && `"${currentText}"`}
           </div>
         )}
+        <div className="input-area__quick-actions">
+          <button
+            className="input-area__quick-btn"
+            onClick={() => setShowMyDay(true)}
+            title="Ma journée"
+          >
+            ☀️
+          </button>
+          <button
+            className="input-area__quick-btn"
+            onClick={() => setShowEmails(true)}
+            title="Emails"
+          >
+            📧
+          </button>
+          <button
+            className="input-area__quick-btn input-area__quick-btn--bell"
+            onClick={() => setShowRdvConfirm(true)}
+            title="Notifications"
+          >
+            🔔
+            {getNotifBadgeCount(agendaData.tasks) > 0 && (
+              <span className="input-area__badge">{getNotifBadgeCount(agendaData.tasks)}</span>
+            )}
+          </button>
+          {messages.length > 0 && (
+            <button
+              className="input-area__quick-btn"
+              onClick={clearConversation}
+              title="Effacer la conversation"
+            >
+              🗑️
+            </button>
+          )}
+        </div>
         <div className="input-area__row">
           <input
             ref={inputRef}
