@@ -1,10 +1,111 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 /**
  * EmailPanel — Full-screen overlay for email management
  * Shows important emails, draft replies, and newsletter management
+ * Supports swipe-left to dismiss emails
  */
+
+// Swipeable email item component
+function SwipeableEmail({ email, children, onDismiss }) {
+    const ref = useRef(null);
+    const startX = useRef(0);
+    const currentX = useRef(0);
+    const swiping = useRef(false);
+    const [offset, setOffset] = useState(0);
+    const [dismissing, setDismissing] = useState(false);
+
+    const SWIPE_THRESHOLD = 100;
+
+    const handleTouchStart = (e) => {
+        startX.current = e.touches[0].clientX;
+        currentX.current = startX.current;
+        swiping.current = true;
+    };
+
+    const handleMouseDown = (e) => {
+        startX.current = e.clientX;
+        currentX.current = startX.current;
+        swiping.current = true;
+        // Attach mouse listeners to window for smooth tracking
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const handleTouchMove = (e) => {
+        if (!swiping.current) return;
+        currentX.current = e.touches[0].clientX;
+        const diff = currentX.current - startX.current;
+        // Only allow left swipe (negative diff)
+        if (diff < 0) {
+            setOffset(diff);
+        }
+    };
+
+    const handleMouseMove = (e) => {
+        if (!swiping.current) return;
+        currentX.current = e.clientX;
+        const diff = currentX.current - startX.current;
+        if (diff < 0) {
+            setOffset(diff);
+        }
+    };
+
+    const handleEnd = () => {
+        swiping.current = false;
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+
+        if (offset < -SWIPE_THRESHOLD) {
+            // Dismiss: animate offscreen
+            setDismissing(true);
+            setOffset(-window.innerWidth);
+            setTimeout(() => {
+                onDismiss(email.id);
+            }, 300);
+        } else {
+            // Spring back
+            setOffset(0);
+        }
+    };
+
+    const handleTouchEnd = handleEnd;
+    const handleMouseUp = handleEnd;
+
+    const progress = Math.min(Math.abs(offset) / SWIPE_THRESHOLD, 1);
+
+    return (
+        <div
+            className={`email-panel__swipe-container ${dismissing ? 'email-panel__swipe-container--dismissing' : ''}`}
+        >
+            {/* Background revealed by swipe */}
+            <div
+                className="email-panel__swipe-bg"
+                style={{ opacity: progress }}
+            >
+                <span className="email-panel__swipe-icon">🗑️</span>
+                <span className="email-panel__swipe-label">Archiver</span>
+            </div>
+
+            {/* Foreground (the actual email card) */}
+            <div
+                ref={ref}
+                className="email-panel__swipe-content"
+                style={{
+                    transform: `translateX(${offset}px)`,
+                    transition: swiping.current ? 'none' : 'transform 0.3s ease',
+                }}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onMouseDown={handleMouseDown}
+            >
+                {children}
+            </div>
+        </div>
+    );
+}
 
 export default function EmailPanel({ visible, onClose }) {
     const [activeTab, setActiveTab] = useState('important'); // 'important', 'newsletters', 'all'
@@ -21,6 +122,7 @@ export default function EmailPanel({ visible, onClose }) {
             const { data, error } = await supabase
                 .from('email_messages')
                 .select('*')
+                .eq('dismissed', false)
                 .order('received_at', { ascending: false })
                 .limit(100);
 
@@ -41,6 +143,16 @@ export default function EmailPanel({ visible, onClose }) {
     useEffect(() => {
         if (visible) fetchEmails();
     }, [visible, fetchEmails]);
+
+    const dismissEmail = async (emailId) => {
+        // Optimistic update: remove from local state immediately
+        setEmails(prev => prev.filter(e => e.id !== emailId));
+        // Update in DB
+        await supabase
+            .from('email_messages')
+            .update({ dismissed: true })
+            .eq('id', emailId);
+    };
 
     const handleSenderDecision = async (senderEmail, decision) => {
         const newClassification = decision === 'keep' ? 'allowed' : 'blocked';
@@ -161,6 +273,11 @@ export default function EmailPanel({ visible, onClose }) {
                     </div>
                 </div>
 
+                {/* Swipe hint (shown briefly) */}
+                <div className="email-panel__swipe-hint">
+                    ← Glissez un email vers la gauche pour l'archiver
+                </div>
+
                 {/* Pending newsletter decisions banner */}
                 {pendingSenders.length > 0 && (
                     <div className="email-panel__pending-banner">
@@ -260,135 +377,150 @@ export default function EmailPanel({ visible, onClose }) {
                                     const senderClass = getSenderClassification(email.from_email);
 
                                     return (
-                                        <div
+                                        <SwipeableEmail
                                             key={email.id}
-                                            className={`email-panel__email ${isExpanded ? 'email-panel__email--expanded' : ''} ${email.needs_reply ? 'email-panel__email--needs-reply' : ''} ${email.is_newsletter ? 'email-panel__email--newsletter' : ''}`}
+                                            email={email}
+                                            onDismiss={dismissEmail}
                                         >
                                             <div
-                                                className="email-panel__email-header"
-                                                onClick={() => setExpandedEmail(isExpanded ? null : email.id)}
+                                                className={`email-panel__email ${isExpanded ? 'email-panel__email--expanded' : ''} ${email.needs_reply ? 'email-panel__email--needs-reply' : ''} ${email.is_newsletter ? 'email-panel__email--newsletter' : ''}`}
                                             >
-                                                <div className="email-panel__email-indicator">
-                                                    {email.needs_reply ? '💬' : email.is_important ? '⭐' : email.is_newsletter ? '📰' : '📧'}
-                                                </div>
-                                                <div className="email-panel__email-main">
-                                                    <div className="email-panel__email-top">
-                                                        <span className="email-panel__email-from">
-                                                            {email.from_name || email.from_email}
-                                                        </span>
-                                                        <span className="email-panel__email-date">
-                                                            {formatDate(email.received_at)}
-                                                        </span>
+                                                <div
+                                                    className="email-panel__email-header"
+                                                    onClick={() => setExpandedEmail(isExpanded ? null : email.id)}
+                                                >
+                                                    <div className="email-panel__email-indicator">
+                                                        {email.needs_reply ? '💬' : email.is_important ? '⭐' : email.is_newsletter ? '📰' : '📧'}
                                                     </div>
-                                                    <div className="email-panel__email-subject">{email.subject}</div>
-                                                    <div className="email-panel__email-summary">{email.ai_summary}</div>
-                                                    <div className="email-panel__email-tags">
-                                                        <span className="email-panel__email-account">
-                                                            {email.account_email === 'quentin@bruneau27.com' ? '👤 Quentin' : '🏢 Info'}
-                                                        </span>
-                                                        {email.needs_reply && !email.replied_at && (() => {
-                                                            const days = daysWaiting(email.received_at);
-                                                            const urgencyClass = days >= 7 ? 'email-panel__tag--urgent' : days >= 3 ? 'email-panel__tag--warning' : 'email-panel__tag--reply';
-                                                            return <span className={`email-panel__tag ${urgencyClass}`}>
-                                                                {days >= 7 ? '🔴' : days >= 3 ? '🟡' : '💬'} {days > 0 ? `${days}j en attente` : 'Réponse attendue'}
-                                                            </span>;
-                                                        })()}
-                                                        {email.needs_reply && email.replied_at && <span className="email-panel__tag email-panel__tag--allowed">✅ Répondu</span>}
-                                                        {email.is_newsletter && senderClass === 'pending' && <span className="email-panel__tag email-panel__tag--pending">À classer</span>}
-                                                        {email.is_newsletter && senderClass === 'allowed' && <span className="email-panel__tag email-panel__tag--allowed">Autorisé</span>}
-                                                        {email.is_newsletter && senderClass === 'blocked' && <span className="email-panel__tag email-panel__tag--blocked">Bloqué</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="email-panel__email-chevron">
-                                                    {isExpanded ? '▲' : '▼'}
-                                                </div>
-                                            </div>
-
-                                            {isExpanded && (
-                                                <div className="email-panel__email-body">
-                                                    <div className="email-panel__email-meta">
-                                                        <span>De : {email.from_name} &lt;{email.from_email}&gt;</span>
-                                                        <span>Reçu : {new Date(email.received_at).toLocaleString('fr-FR')}</span>
-                                                        <span>Boîte : {email.account_email}</span>
-                                                    </div>
-
-                                                    {email.ai_summary && email.ai_summary !== email.subject && (
-                                                        <div className="email-panel__ai-summary">
-                                                            <span className="email-panel__ai-label">🤖 Résumé IA</span>
-                                                            <p>{email.ai_summary}</p>
+                                                    <div className="email-panel__email-main">
+                                                        <div className="email-panel__email-top">
+                                                            <span className="email-panel__email-from">
+                                                                {email.from_name || email.from_email}
+                                                            </span>
+                                                            <span className="email-panel__email-date">
+                                                                {formatDate(email.received_at)}
+                                                            </span>
                                                         </div>
-                                                    )}
-
-                                                    <div className="email-panel__email-content">
-                                                        <h4>📄 Contenu</h4>
-                                                        <div className="email-panel__email-text">
-                                                            {email.body_preview
-                                                                ? email.body_preview
-                                                                : <span className="email-panel__no-content">Contenu non disponible — sera récupéré au prochain check</span>
-                                                            }
+                                                        <div className="email-panel__email-subject">{email.subject}</div>
+                                                        <div className="email-panel__email-summary">{email.ai_summary}</div>
+                                                        <div className="email-panel__email-tags">
+                                                            <span className="email-panel__email-account">
+                                                                {email.account_email === 'quentin@bruneau27.com' ? '👤 Quentin' : '🏢 Info'}
+                                                            </span>
+                                                            {email.needs_reply && !email.replied_at && (() => {
+                                                                const days = daysWaiting(email.received_at);
+                                                                const urgencyClass = days >= 7 ? 'email-panel__tag--urgent' : days >= 3 ? 'email-panel__tag--warning' : 'email-panel__tag--reply';
+                                                                return <span className={`email-panel__tag ${urgencyClass}`}>
+                                                                    {days >= 7 ? '🔴' : days >= 3 ? '🟡' : '💬'} {days > 0 ? `${days}j en attente` : 'Réponse attendue'}
+                                                                </span>;
+                                                            })()}
+                                                            {email.needs_reply && email.replied_at && <span className="email-panel__tag email-panel__tag--allowed">✅ Répondu</span>}
+                                                            {email.is_newsletter && senderClass === 'pending' && <span className="email-panel__tag email-panel__tag--pending">À classer</span>}
+                                                            {email.is_newsletter && senderClass === 'allowed' && <span className="email-panel__tag email-panel__tag--allowed">Autorisé</span>}
+                                                            {email.is_newsletter && senderClass === 'blocked' && <span className="email-panel__tag email-panel__tag--blocked">Bloqué</span>}
                                                         </div>
                                                     </div>
+                                                    <div className="email-panel__email-chevron">
+                                                        {isExpanded ? '▲' : '▼'}
+                                                    </div>
+                                                </div>
 
-                                                    {email.draft_reply && (
-                                                        <div className="email-panel__draft">
-                                                            <div
-                                                                className="email-panel__draft-header"
-                                                                onClick={(e) => { e.stopPropagation(); setExpandedDraft(isDraftExpanded ? null : email.id); }}
-                                                            >
-                                                                <span>✏️ Brouillon de réponse</span>
-                                                                <span>{isDraftExpanded ? '▲' : '▼'}</span>
+                                                {isExpanded && (
+                                                    <div className="email-panel__email-body">
+                                                        <div className="email-panel__email-meta">
+                                                            <span>De : {email.from_name} &lt;{email.from_email}&gt;</span>
+                                                            <span>Reçu : {new Date(email.received_at).toLocaleString('fr-FR')}</span>
+                                                            <span>Boîte : {email.account_email}</span>
+                                                        </div>
+
+                                                        {email.ai_summary && email.ai_summary !== email.subject && (
+                                                            <div className="email-panel__ai-summary">
+                                                                <span className="email-panel__ai-label">🤖 Résumé IA</span>
+                                                                <p>{email.ai_summary}</p>
                                                             </div>
-                                                            {isDraftExpanded && (
-                                                                <div className="email-panel__draft-body">
-                                                                    <pre>{email.draft_reply}</pre>
-                                                                    <button
-                                                                        className="email-panel__draft-copy"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            navigator.clipboard.writeText(email.draft_reply);
-                                                                        }}
-                                                                    >
-                                                                        📋 Copier le brouillon
-                                                                    </button>
+                                                        )}
+
+                                                        <div className="email-panel__email-content">
+                                                            <h4>📄 Contenu</h4>
+                                                            <div className="email-panel__email-text">
+                                                                {email.body_preview
+                                                                    ? email.body_preview
+                                                                    : <span className="email-panel__no-content">Contenu non disponible — sera récupéré au prochain check</span>
+                                                                }
+                                                            </div>
+                                                        </div>
+
+                                                        {email.draft_reply && (
+                                                            <div className="email-panel__draft">
+                                                                <div
+                                                                    className="email-panel__draft-header"
+                                                                    onClick={(e) => { e.stopPropagation(); setExpandedDraft(isDraftExpanded ? null : email.id); }}
+                                                                >
+                                                                    <span>✏️ Brouillon de réponse</span>
+                                                                    <span>{isDraftExpanded ? '▲' : '▼'}</span>
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                                {isDraftExpanded && (
+                                                                    <div className="email-panel__draft-body">
+                                                                        <pre>{email.draft_reply}</pre>
+                                                                        <button
+                                                                            className="email-panel__draft-copy"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                navigator.clipboard.writeText(email.draft_reply);
+                                                                            }}
+                                                                        >
+                                                                            📋 Copier le brouillon
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
 
-                                                    {email.needs_reply && !email.replied_at && (
-                                                        <div className="email-panel__reply-tracking">
-                                                            <button
-                                                                className="email-panel__sender-btn email-panel__sender-btn--keep"
-                                                                onClick={(e) => { e.stopPropagation(); markAsReplied(email.id); }}
-                                                                style={{ marginTop: '8px' }}
-                                                            >
-                                                                ✅ Marquer comme répondu
-                                                            </button>
-                                                        </div>
-                                                    )}
-
-                                                    {email.is_newsletter && senderClass === 'pending' && (
-                                                        <div className="email-panel__newsletter-decision">
-                                                            <span>Que faire avec les newsletters de <strong>{email.from_name}</strong> ?</span>
-                                                            <div className="email-panel__newsletter-btns">
+                                                        {email.needs_reply && !email.replied_at && (
+                                                            <div className="email-panel__reply-tracking">
                                                                 <button
                                                                     className="email-panel__sender-btn email-panel__sender-btn--keep"
-                                                                    onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'keep'); }}
+                                                                    onClick={(e) => { e.stopPropagation(); markAsReplied(email.id); }}
+                                                                    style={{ marginTop: '8px' }}
                                                                 >
-                                                                    ✅ Garder les prochaines
-                                                                </button>
-                                                                <button
-                                                                    className="email-panel__sender-btn email-panel__sender-btn--block"
-                                                                    onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'dismiss'); }}
-                                                                >
-                                                                    🚫 Marquer comme lu
+                                                                    ✅ Marquer comme répondu
                                                                 </button>
                                                             </div>
+                                                        )}
+
+                                                        {email.is_newsletter && senderClass === 'pending' && (
+                                                            <div className="email-panel__newsletter-decision">
+                                                                <span>Que faire avec les newsletters de <strong>{email.from_name}</strong> ?</span>
+                                                                <div className="email-panel__newsletter-btns">
+                                                                    <button
+                                                                        className="email-panel__sender-btn email-panel__sender-btn--keep"
+                                                                        onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'keep'); }}
+                                                                    >
+                                                                        ✅ Garder les prochaines
+                                                                    </button>
+                                                                    <button
+                                                                        className="email-panel__sender-btn email-panel__sender-btn--block"
+                                                                        onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'dismiss'); }}
+                                                                    >
+                                                                        🚫 Marquer comme lu
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Dismiss button at bottom of expanded view */}
+                                                        <div className="email-panel__dismiss-section">
+                                                            <button
+                                                                className="email-panel__dismiss-btn"
+                                                                onClick={(e) => { e.stopPropagation(); dismissEmail(email.id); }}
+                                                            >
+                                                                🗑️ Archiver cet email
+                                                            </button>
                                                         </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </SwipeableEmail>
                                     );
                                 })}
                             </div>

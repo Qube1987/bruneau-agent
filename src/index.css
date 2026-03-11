@@ -5284,3 +5284,117 @@ body {
   color: var(--text-primary);
   line-height: 1.5;
 }
+
+/* ======== Swipe-to-dismiss ======== */
+.email-panel__swipe-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-xs);
+  transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+}
+
+.email-panel__swipe-container--dismissing {
+  max-height: 0 !important;
+  opacity: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  transition: max-height 0.4s ease 0.2s, opacity 0.3s ease, margin 0.3s ease 0.2s;
+}
+
+.email-panel__swipe-bg {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  background: linear-gradient(90deg, transparent 50%, #e74c3c 75%, #c0392b 100%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 24px;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.email-panel__swipe-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
+.email-panel__swipe-label {
+  color: white;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.email-panel__swipe-content {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-card);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.email-panel__swipe-content:active {
+  cursor: grabbing;
+}
+
+/* Swipe hint */
+.email-panel__swipe-hint {
+  padding: 6px var(--space-md);
+  background: rgba(108, 92, 231, 0.08);
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  animation: swipe-hint-fade 6s ease forwards;
+}
+
+@keyframes swipe-hint-fade {
+
+  0%,
+  70% {
+    opacity: 1;
+    max-height: 30px;
+    padding: 6px var(--space-md);
+  }
+
+  100% {
+    opacity: 0;
+    max-height: 0;
+    padding: 0 var(--space-md);
+    overflow: hidden;
+  }
+}
+
+/* Dismiss button (fallback for non-touch) */
+.email-panel__dismiss-section {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--border);
+  display: flex;
+  justify-content: center;
+}
+
+.email-panel__dismiss-btn {
+  all: unset;
+  cursor: pointer;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  background: rgba(231, 76, 60, 0.08);
+  border: 1px solid rgba(231, 76, 60, 0.2);
+  transition: all 0.2s ease;
+}
+
+.email-panel__dismiss-btn:hover {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+  border-color: rgba(231, 76, 60, 0.4);
+}
