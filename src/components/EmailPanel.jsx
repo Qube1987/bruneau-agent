@@ -536,22 +536,31 @@ export default function EmailPanel({ visible, onClose }) {
                                                             </div>
                                                         )}
 
-                                                        {email.is_newsletter && senderClass === 'pending' && (
+                                                        {email.is_newsletter && (
                                                             <div className="email-panel__newsletter-decision">
-                                                                <span>Que faire avec les newsletters de <strong>{email.from_name}</strong> ?</span>
+                                                                <span>Expéditeur <strong>{email.from_name}</strong> —
+                                                                    {senderClass === 'pending' && '⏳ En attente de décision'}
+                                                                    {senderClass === 'allowed' && '✅ Autorisé'}
+                                                                    {senderClass === 'blocked' && '🚫 Bloqué'}
+                                                                    {senderClass === 'unknown' && '❓ Inconnu'}
+                                                                </span>
                                                                 <div className="email-panel__newsletter-btns">
-                                                                    <button
-                                                                        className="email-panel__sender-btn email-panel__sender-btn--keep"
-                                                                        onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'keep'); }}
-                                                                    >
-                                                                        ✅ Garder les prochaines
-                                                                    </button>
-                                                                    <button
-                                                                        className="email-panel__sender-btn email-panel__sender-btn--block"
-                                                                        onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'dismiss'); }}
-                                                                    >
-                                                                        🚫 Marquer comme lu
-                                                                    </button>
+                                                                    {(senderClass === 'pending' || senderClass === 'blocked' || senderClass === 'unknown') && (
+                                                                        <button
+                                                                            className="email-panel__sender-btn email-panel__sender-btn--keep"
+                                                                            onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'keep'); }}
+                                                                        >
+                                                                            ✅ {senderClass === 'blocked' ? 'Ré-autoriser' : 'Garder'}
+                                                                        </button>
+                                                                    )}
+                                                                    {(senderClass === 'pending' || senderClass === 'allowed' || senderClass === 'unknown') && (
+                                                                        <button
+                                                                            className="email-panel__sender-btn email-panel__sender-btn--block"
+                                                                            onClick={(e) => { e.stopPropagation(); handleSenderDecision(email.from_email, 'dismiss'); }}
+                                                                        >
+                                                                            🚫 Bloquer
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         )}
