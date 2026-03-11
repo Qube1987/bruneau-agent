@@ -108,7 +108,7 @@ function parseRawApts(rawData, userCode, member) {
     return result;
 }
 
-const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, userName }, ref) {
+const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, userName, onShowEmails }, ref) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState('agenda');
     const [savs, setSavs] = useState([]);
@@ -448,6 +448,12 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
                         </button>
                     );
                 })}
+                {onShowEmails && (
+                    <button className="agenda-panel__toggle" onClick={onShowEmails} style={{ margin: 0 }}>
+                        <span>{'\u{1F4E7}'}</span>
+                        <span>Mails</span>
+                    </button>
+                )}
             </div>
 
             {isExpanded && activeTab === 'agenda' && (

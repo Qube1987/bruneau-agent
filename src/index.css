@@ -234,6 +234,35 @@ body {
   background-clip: text;
 }
 
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header__icon-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.header__icon-btn:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-accent);
+  transform: scale(1.08);
+}
+
 /* ===== Chat Area ===== */
 .chat {
   flex: 1;
@@ -1247,59 +1276,34 @@ body {
 
 /* ===== Input Area ===== */
 .input-area {
-  padding: var(--space-sm) var(--space-lg) var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(20px);
   background: rgba(10, 10, 26, 0.9);
   flex-shrink: 0;
 }
 
-.input-area__quick-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-bottom: var(--space-sm);
-}
-
-.input-area__quick-btn {
+.input-area__clear-btn {
   width: 36px;
   height: 36px;
+  min-width: 36px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--bg-glass);
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all var(--transition-fast);
-  position: relative;
   flex-shrink: 0;
 }
 
-.input-area__quick-btn:hover {
-  background: var(--bg-glass-hover);
-  border-color: var(--border-accent);
-  transform: translateY(-1px);
-}
-
-.input-area__badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-  color: white;
-  font-size: 9px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 3px;
-  box-shadow: 0 0 6px rgba(255, 107, 107, 0.5);
+.input-area__clear-btn:hover {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.3);
+  color: var(--danger);
 }
 
 .input-area__row {
@@ -1439,7 +1443,7 @@ body {
 
 .agenda-panel__tabs {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   padding: 8px 12px;
   flex-wrap: nowrap;
   overflow-x: auto;
@@ -1495,15 +1499,15 @@ body {
 .agenda-panel__toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 9px;
+  gap: 3px;
+  padding: 4px 7px;
   background: var(--bg-glass);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
   font-family: var(--font-family);
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 500;
   transition: all var(--transition-fast);
   margin: 0;
@@ -2284,20 +2288,22 @@ body {
 }
 
 .header__myday-btn {
-  background: linear-gradient(135deg, rgba(253, 203, 110, 0.2), rgba(255, 107, 107, 0.15));
+  background: linear-gradient(135deg, rgba(253, 203, 110, 0.15), rgba(255, 107, 107, 0.1));
   border: 1px solid rgba(253, 203, 110, 0.3);
-  border-radius: var(--radius-sm);
+  border-radius: 18px;
   color: #fdcb6e;
-  padding: 6px 12px;
+  height: 36px;
+  padding: 0 14px;
   cursor: pointer;
   font-size: var(--font-xs);
   font-family: var(--font-family);
   font-weight: 600;
   transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
 .header__myday-btn:hover {
-  background: linear-gradient(135deg, rgba(253, 203, 110, 0.3), rgba(255, 107, 107, 0.25));
+  background: linear-gradient(135deg, rgba(253, 203, 110, 0.25), rgba(255, 107, 107, 0.2));
   border-color: rgba(253, 203, 110, 0.5);
   transform: translateY(-1px);
 }
