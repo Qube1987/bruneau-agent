@@ -88,7 +88,7 @@ export default function CreateAptModal({ onClose, userCode }) {
         if (debounceRef.current) clearTimeout(debounceRef.current);
         if (skipSearchRef.current) { skipSearchRef.current = false; return; }
         const q = clientName.trim();
-        if (q.length < 2) { setSuggestions([]); return; }
+        if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return; }
 
         debounceRef.current = setTimeout(async () => {
             setSearching(true);
@@ -97,19 +97,37 @@ export default function CreateAptModal({ onClose, userCode }) {
                 const token = session?.access_token;
                 if (!token) { setSearching(false); return; }
 
+                // Split query into words for multi-word search (e.g. "Jean Dupont" → search "Jean" AND "Dupont")
+                const words = q.split(/\s+/).filter(w => w.length >= 2);
+                const searchWord = words.length > 0 ? words[0] : q;
+                // Build safe or-filter using individual words (avoids PostgREST syntax issues with . , ( ) in values)
+                const safeWord = searchWord.replace(/[.,()%]/g, '');
+
                 // Search Supabase clients first
-                const { data: sbClients } = await supabase
-                    .from('clients')
-                    .select('id, nom, prenom, extrabat_id, adresse, code_postal, ville')
-                    .or(`nom.ilike.%${q}%,prenom.ilike.%${q}%`)
-                    .limit(5);
+                let sbClients = null;
+                if (safeWord.length >= 2) {
+                    const { data } = await supabase
+                        .from('clients')
+                        .select('id, nom, prenom, extrabat_id, adresse, code_postal, ville')
+                        .or(`nom.ilike.%${safeWord}%,prenom.ilike.%${safeWord}%`)
+                        .limit(15);
+                    sbClients = data;
+                }
+
+                // Client-side filter: if multiple words, filter results to match ALL words
+                const qLower = q.toLowerCase();
+                const wordsLower = words.map(w => w.toLowerCase());
 
                 const results = [];
                 if (sbClients) {
                     sbClients.forEach(c => {
+                        const fullName = [c.prenom, c.nom].filter(Boolean).join(' ');
+                        const fullNameLower = fullName.toLowerCase();
+                        // Client-side: check ALL query words match the full name
+                        if (wordsLower.length > 1 && !wordsLower.every(w => fullNameLower.includes(w))) return;
                         const addr = [c.adresse, c.code_postal, c.ville].filter(Boolean).join(', ');
                         results.push({
-                            name: [c.prenom, c.nom].filter(Boolean).join(' '),
+                            name: fullName,
                             address: addr,
                             extrabatId: c.extrabat_id,
                             supabaseId: c.id,
@@ -118,40 +136,58 @@ export default function CreateAptModal({ onClose, userCode }) {
                     });
                 }
 
-                // Also search Extrabat
-                const res = await fetch(PROXY_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': token },
-                    body: JSON.stringify({ endpoint: 'clients', apiVersion: 'v2', params: { nomraisonsociale: q } }),
-                });
-                const data = await res.json();
-                if (data.success && Array.isArray(data.data)) {
-                    data.data.slice(0, 5).forEach(c => {
-                        // Skip duplicates already found in Supabase
-                        if (results.some(r => r.extrabatId && r.extrabatId === c.id)) return;
-                        const addr = [c.adresse, c.codePostal, c.ville].filter(Boolean).join(', ');
-                        results.push({
-                            name: c.nomraisonsociale || c.nom || '',
-                            address: addr,
-                            extrabatId: c.id,
-                            supabaseId: null,
-                            source: 'extrabat',
-                            // Raw Extrabat fields for upsert into Supabase
-                            _raw: {
-                                nom: c.nomraisonsociale || c.nom || '',
-                                adresse: c.adresse || '',
-                                code_postal: c.codePostal || '',
-                                ville: c.ville || '',
-                                telephone: c.telephone || c.telephones?.[0]?.numero || '',
-                                email: c.email || '',
-                            },
-                        });
+                // Also search Extrabat (use first word only — Extrabat API may not handle multi-word well)
+                try {
+                    const res = await fetch(PROXY_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': token },
+                        body: JSON.stringify({ endpoint: 'clients', apiVersion: 'v2', params: { nomraisonsociale: searchWord } }),
                     });
+                    const data = await res.json();
+                    if (data.success && Array.isArray(data.data)) {
+                        data.data.forEach(c => {
+                            // Skip duplicates already found in Supabase
+                            if (results.some(r => r.extrabatId && r.extrabatId === c.id)) return;
+                            // Client-side filter: only keep results that actually match the typed query
+                            const extName = (c.nomraisonsociale || c.nom || '').toLowerCase();
+                            if (!wordsLower.some(w => extName.includes(w))) return;
+                            if (results.length >= 8) return; // cap total results
+                            const addr = [c.adresse, c.codePostal, c.ville].filter(Boolean).join(', ');
+                            results.push({
+                                name: c.nomraisonsociale || c.nom || '',
+                                address: addr,
+                                extrabatId: c.id,
+                                supabaseId: null,
+                                source: 'extrabat',
+                                _raw: {
+                                    nom: c.nomraisonsociale || c.nom || '',
+                                    adresse: c.adresse || '',
+                                    code_postal: c.codePostal || '',
+                                    ville: c.ville || '',
+                                    telephone: c.telephone || c.telephones?.[0]?.numero || '',
+                                    email: c.email || '',
+                                },
+                            });
+                        });
+                    }
+                } catch (extErr) {
+                    console.warn('[CreateApt] Extrabat search failed:', extErr);
                 }
 
-                setSuggestions(results);
+                // Final client-side sort: exact prefix matches first
+                results.sort((a, b) => {
+                    const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+                    const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+                    return aStarts - bStarts;
+                });
+
+                setSuggestions(results.slice(0, 8));
                 setShowSuggestions(results.length > 0);
-            } catch { /* ignore */ }
+            } catch (err) {
+                console.warn('[CreateApt] Search error:', err);
+                setSuggestions([]);
+                setShowSuggestions(false);
+            }
             setSearching(false);
         }, 350);
 
