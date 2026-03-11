@@ -283,7 +283,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
 
         // Batch update DB
         for (const u of updates) {
-            supabase.from('tasks').update({ position: u.position }).eq('id', u.id).then(() => {});
+            supabase.from('tasks').update({ position: u.position }).eq('id', u.id).then(() => { });
         }
 
         dragItem.current = null;
@@ -363,7 +363,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
         .filter(t => {
             if (!searchLower) return true;
             return (t.title || '').toLowerCase().includes(searchLower) ||
-                   (t.description || '').toLowerCase().includes(searchLower);
+                (t.description || '').toLowerCase().includes(searchLower);
         })
         .filter(t => {
             if (selectedCategories.size === 0) return true;
@@ -514,7 +514,7 @@ export default function TodoPanel({ tasks, setTasks, loading: externalLoading })
     };
 
     return (
-        <div className="todo-panel" style={{ overflowY: 'auto', maxHeight: '45vh', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="todo-panel" style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {/* Header bar */}
             <div className="todo-header">
                 <div className="todo-header__filters">
