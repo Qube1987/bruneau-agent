@@ -63,8 +63,6 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks,
         computeTravelTimes(dayApts).then(setTravelTimes).catch(() => setTravelTimes([]));
     }, [visible, dayOffset, allApts]);
 
-
-
     // Free slots
     const freeSlots = findFreeSlots(dayApts, 8, 18, 60);
 
@@ -186,16 +184,7 @@ export default function MyDayPanel({ visible, onClose, allApts, tasks, setTasks,
                                         <AddressLink address={(currentApt || upcomingApt)._address} />
                                         <PhoneLink phone={(currentApt || upcomingApt)._phone} senderName={userName} />
                                     </div>
-                                    {/* Travel time to next */}
-                                    {!currentApt && upcomingApt && travelTimes.find(t => t.toApt?.id === upcomingApt.id) && (() => {
-                                        const travel = travelTimes.find(t => t.toApt?.id === upcomingApt.id);
-                                        return (
-                                            <div className={`myday-next__travel ${travel.tight ? 'myday-next__travel--tight' : ''}`}>
-                                                {'\u{1F697}'} {travel.minutes} min de trajet ({travel.km} km)
-                                                {travel.tight && <span> — Temps serré !</span>}
-                                            </div>
-                                        );
-                                    })()}
+
                                 </div>
                             </div>
                         )}
