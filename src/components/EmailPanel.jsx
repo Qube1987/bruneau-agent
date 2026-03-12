@@ -89,8 +89,8 @@ function SwipeableEmail({ email, children, onDismiss, onReclassify }) {
                 className="email-panel__swipe-bg email-panel__swipe-bg--left"
                 style={{ opacity: leftProgress }}
             >
-                <span className="email-panel__swipe-icon">🗑️</span>
-                <span className="email-panel__swipe-label">Archiver</span>
+                <span className="email-panel__swipe-icon">✓</span>
+                <span className="email-panel__swipe-label">Lu</span>
             </div>
 
             {/* RIGHT background (reclassify) — blue/green */}
@@ -168,6 +168,19 @@ export default function EmailPanel({ visible, onClose }) {
             .from('email_messages')
             .update({ dismissed: true })
             .eq('id', emailId);
+        // Mark as read on IMAP server
+        try {
+            await fetch(
+                `${import.meta.env.VITE_SUPABASE_URL || 'https://rzxisqsdsiiuwaixnneo.supabase.co'}/functions/v1/email-checker`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ markRead: true, emailIds: [emailId] }),
+                }
+            );
+        } catch (err) {
+            console.error('[Emails] Mark-read error:', err);
+        }
     };
 
     const reclassifyEmail = async (email) => {
@@ -210,14 +223,26 @@ export default function EmailPanel({ visible, onClose }) {
             .update({ classification: newClassification, updated_at: new Date().toISOString() })
             .eq('sender_email', senderEmail);
 
-        // If blocked, mark all their unprocessed emails as read (will be handled by next check)
+        // If blocked, mark all their emails as read on IMAP
         if (decision === 'dismiss') {
-            // Record the decision
             await supabase.from('email_newsletter_decisions').insert({
                 sender_email: senderEmail,
                 decision: 'dismiss',
                 decided_at: new Date().toISOString(),
             });
+            // Mark all emails from this sender as read on IMAP
+            try {
+                await fetch(
+                    `${import.meta.env.VITE_SUPABASE_URL || 'https://rzxisqsdsiiuwaixnneo.supabase.co'}/functions/v1/email-checker`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ markReadBySender: true, senderEmail }),
+                    }
+                );
+            } catch (err) {
+                console.error('[Emails] Mark-read-by-sender error:', err);
+            }
         } else {
             await supabase.from('email_newsletter_decisions').insert({
                 sender_email: senderEmail,
@@ -322,7 +347,7 @@ export default function EmailPanel({ visible, onClose }) {
 
                 {/* Swipe hint (shown briefly) */}
                 <div className="email-panel__swipe-hint">
-                    ← Archiver &nbsp;|&nbsp; Reclassifier →
+                    ← Lu &nbsp;|&nbsp; Reclassifier →
                 </div>
 
                 {/* Pending newsletter decisions banner */}
@@ -571,7 +596,7 @@ export default function EmailPanel({ visible, onClose }) {
                                                                 className="email-panel__dismiss-btn"
                                                                 onClick={(e) => { e.stopPropagation(); dismissEmail(email.id); }}
                                                             >
-                                                                🗑️ Archiver cet email
+                                                                ✉️ Marquer comme lu
                                                             </button>
                                                         </div>
                                                     </div>

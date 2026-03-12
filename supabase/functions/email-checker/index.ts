@@ -224,6 +224,13 @@ class SimpleIMAP {
         await this.command(`STORE ${seqSet} +FLAGS (${flag})`);
     }
 
+    async markReadByUID(uids: number[]) {
+        if (uids.length === 0) return;
+        const uidSet = uids.join(",");
+        console.log(`[IMAP] Marking UIDs as read: ${uidSet}`);
+        await this.command(`UID STORE ${uidSet} +FLAGS (\\Seen)`);
+    }
+
     async logout() {
         try {
             await this.command("LOGOUT");
@@ -442,6 +449,14 @@ Deno.serve(async (req) => {
         try { body = await req.json(); } catch { }
         if (body?.reanalyze) {
             return await reanalyzeEmails(db);
+        }
+        // Mark-read mode: mark specific emails as read on IMAP
+        if (body?.markRead && body?.emailIds?.length) {
+            return await markEmailsAsRead(db, body.emailIds);
+        }
+        // Mark-read by sender: mark all emails from a sender as read
+        if (body?.markReadBySender && body?.senderEmail) {
+            return await markSenderEmailsAsRead(db, body.senderEmail);
         }
         // Refetch mode: delete all emails and re-download from IMAP
         if (body?.refetch) {
@@ -663,4 +678,82 @@ async function reanalyzeEmails(db: any) {
 
     return new Response(JSON.stringify({ success: true, reanalyzed }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+// Mark specific emails as read on IMAP server, given their DB ids
+async function markEmailsAsRead(db: any, emailIds: string[]) {
+    console.log(`[MarkRead] Marking ${emailIds.length} emails as read...`);
+
+    // Get emails with their account and UID info
+    const { data: emails, error } = await db
+        .from("email_messages")
+        .select("id, account_email, message_uid")
+        .in("id", emailIds);
+
+    if (error || !emails?.length) {
+        return new Response(JSON.stringify({ success: false, error: error?.message || "No emails found" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Group by account
+    const byAccount = new Map<string, number[]>();
+    for (const e of emails) {
+        const key = e.account_email;
+        if (!byAccount.has(key)) byAccount.set(key, []);
+        byAccount.get(key)!.push(e.message_uid);
+    }
+
+    // Get accounts
+    const { data: accounts } = await db.from("email_accounts").select("*").eq("enabled", true);
+    if (!accounts?.length) {
+        return new Response(JSON.stringify({ success: false, error: "No accounts" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    let totalMarked = 0;
+    for (const [accountEmail, uids] of byAccount) {
+        const account = accounts.find((a: any) => a.email === accountEmail);
+        if (!account) {
+            console.error(`[MarkRead] Account not found: ${accountEmail}`);
+            continue;
+        }
+
+        const imap = new SimpleIMAP();
+        try {
+            await imap.connect(account.imap_server, account.imap_port);
+            const loggedIn = await imap.login(account.email, account.password);
+            if (!loggedIn) { console.error(`[MarkRead] Login failed: ${accountEmail}`); await imap.logout(); continue; }
+            await imap.selectInbox();
+            await imap.markReadByUID(uids);
+            totalMarked += uids.length;
+            console.log(`[MarkRead] Marked ${uids.length} emails as read in ${accountEmail}`);
+            await imap.logout();
+        } catch (err: any) {
+            console.error(`[MarkRead] Error for ${accountEmail}:`, err.message);
+            try { await imap.logout(); } catch { }
+        }
+    }
+
+    return new Response(JSON.stringify({ success: true, totalMarked }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+// Mark all emails from a specific sender as read on IMAP
+async function markSenderEmailsAsRead(db: any, senderEmail: string) {
+    console.log(`[MarkRead] Marking all emails from ${senderEmail} as read...`);
+
+    const { data: emails, error } = await db
+        .from("email_messages")
+        .select("id, account_email, message_uid")
+        .eq("from_email", senderEmail)
+        .eq("dismissed", false);
+
+    if (error || !emails?.length) {
+        return new Response(JSON.stringify({ success: true, totalMarked: 0 }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Reuse markEmailsAsRead logic
+    const emailIds = emails.map((e: any) => e.id);
+    return await markEmailsAsRead(db, emailIds);
 }
