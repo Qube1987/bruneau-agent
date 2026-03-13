@@ -309,9 +309,11 @@ async function analyzeEmailWithGemini(subject: string, body: string, fromName: s
         return basicAnalysis(subject, body, fromEmail);
     }
 
-    const prompt = `Tu es l'assistant email de Quentin Bruneau, gérant de Bruneau Protection (sécurité/alarmes/vidéosurveillance en Normandie).
+    const prompt = `Tu es le filtre email ULTRA-STRICT de Quentin Bruneau, gérant de Bruneau Protection (sécurité/alarmes/vidéosurveillance en Normandie).
 
-ANALYSE cet email. Réponds UNIQUEMENT en JSON, sans aucun markdown ni texte autour.
+TA MISSION : ne signaler comme "important" QUE les emails qui nécessitent RÉELLEMENT l'attention personnelle de Quentin. En cas de doute, l'email n'est PAS important.
+
+Réponds UNIQUEMENT en JSON, sans aucun markdown ni texte autour.
 
 Expéditeur : ${fromName} <${fromEmail}>
 Objet : ${subject}
@@ -320,24 +322,48 @@ Contenu (peut être vide ou partiel) : ${body.substring(0, 2500)}
 FORMAT EXACT :
 {"isNewsletter":bool,"isImportant":bool,"needsReply":bool,"summary":"résumé 1-2 phrases en français","draftReply":"brouillon ou null"}
 
-CLASSIFICATION — Indices de NEWSLETTER (isNewsletter=true) :
-- Adresse contenant : noreply, no-reply, newsletter, info@, webmaster@, notif, contact@...service
-- Sujets contenant : "nouveautés", "découvrez", "offre", "promo", "actualités", "security alert"
-- Emails de services SaaS (Supabase, GitHub, Google, etc.)
-- Messagerie vocale orange, notifications automatiques
-- Tout ce qui est envoyé en masse sans attendre de réponse personnelle
-- Fournisseurs envoyant des catalogues/promos (ex: Francofa Eurodis, Les Echos)
+=== EMAILS NON-IMPORTANTS (isImportant=false) ===
+Tous les emails suivants sont NON-IMPORTANTS, même s'ils semblent "utiles" :
 
-CLASSIFICATION — Emails IMPORTANTS (isNewsletter=false, isImportant=true) :
-- Clients particuliers (orange.fr, yahoo.fr, gmail.com) qui écrivent personnellement
-- Fournisseurs avec sujet spécifique (facture, commande, devis)
-- Comptable (fiteco), gestionnaire immobilier, mairie
-- Collègues/employés (Hugo, etc.)
-- Demandes de devis, questions sur alarmes
+1. NEWSLETTERS ET MASS MAILING (isNewsletter=true, isImportant=false) :
+   - Tout email de noreply, no-reply, newsletter@, info@, webmaster@, notification@, mailing@, marketing@, ne-pas-repondre, nepas-repondre
+   - Promos, offres, nouveautés, catalogues, actualités
+   - Services SaaS (Supabase, GitHub, Google, Vercel, npm, Docker, etc.)
+   - Réseaux sociaux (LinkedIn, Facebook, Twitter, Instagram)
+   - Messagerie vocale Orange, notifications opérateurs
+   - Toute communication de masse non personnalisée
+   - Presse/médias (Les Echos, Le Figaro, etc.)
+   - Fournisseurs envoyant des catalogues/promos (Francofa, Eurodis, Rexel, etc.)
 
-needsReply=true UNIQUEMENT si l'expéditeur attend clairement une réponse (question directe, demande de devis, demande de rappel).
+2. EMAILS AUTOMATIQUES/TRANSACTIONNELS (isNewsletter=true, isImportant=false) :
+   - Confirmations de remise/livraison de mail ("Votre message a été remis", "Delivery notification", "Message delivered", "DSN")
+   - Accusés de réception automatiques ("Absence du bureau", "Out of office", "Auto-reply")
+   - Confirmations de commande automatiques ("Votre commande a été expédiée")
+   - Notifications de suivi de colis (Colissimo, Chronopost, UPS, DHL, etc.)
+   - Alertes de sécurité automatiques ("Nouvelle connexion", "security alert", "suspicious activity")
+   - Confirmations d'inscription, de désabonnement
+   - Rapports automatiques, digests, récapitulatifs
+   - Emails bounce, mailer-daemon, postmaster
+   - Notifications de paiement automatique (prélèvement effectué, etc.)
+   - Factures automatiques sans action requise
+   - Emails de systèmes de ticketing automatiques
+   - Toute notification automatique de plateforme/service
 
-summary : résumé utile en français. Si contenu vide, résume à partir du sujet ET de l'expéditeur.
+=== EMAILS IMPORTANTS (isNewsletter=false, isImportant=true) ===
+UNIQUEMENT ces cas :
+- Un CLIENT (particulier ou pro) qui écrit personnellement à Quentin avec un besoin concret (demande de devis, problème d'alarme, question sur une installation, réclamation)
+- Un FOURNISSEUR qui écrit de manière personnalisée sur un sujet spécifique en cours (PAS une promo, PAS un email automatique)
+- Le COMPTABLE (fiteco) avec un sujet nécessitant une action
+- Un EMPLOYÉ/COLLÈGUE (Hugo, etc.) avec une question ou information opérationnelle
+- La MAIRIE, les institutions, avec un sujet administratif concret
+- Toute personne qui écrit un message PERSONNEL attendant une réponse de Quentin
+
+=== RÈGLE D'OR ===
+needsReply=true UNIQUEMENT si le message contient une question directe ou une demande explicite adressée personnellement à Quentin (demande de devis, demande de rappel, question technique).
+isImportant=true UNIQUEMENT si Quentin raterait quelque chose de concret en ignorant cet email.
+EN CAS DE DOUTE → isImportant=false, isNewsletter=true.
+
+summary : résumé utile en français.
 draftReply : brouillon SEULEMENT si needsReply=true. Vouvoiement. Signature "Cordialement, Quentin Bruneau - Bruneau Protection". null sinon.`;
 
     try {
@@ -383,21 +409,22 @@ function basicAnalysis(subject: string, body: string, fromEmail: string) {
     const bl = (body || "").toLowerCase();
     const fe = fromEmail.toLowerCase();
 
-    // Strong newsletter signals in email address
-    const nlAddressPatterns = ["noreply", "no-reply", "newsletter", "notification@", "mailing", "webmaster@", "info-", "marketing", "promotions", "ne-pas-repondre", "nepas-repondre", "messagerievocale", "adhoc@info"];
-    const nlSubjectPatterns = ["nouveautés", "nouveautes", "découvrez", "decouvrez", "offre spéciale", "promo", "security vulnerabilities", "unsubscribe", "désabonnement"];
-    const nlBodyPatterns = ["unsubscribe", "désabonnement", "se désinscrire", "opt-out", "view in browser", "version en ligne"];
+    // Strong newsletter / automated signals in email address
+    const nlAddressPatterns = ["noreply", "no-reply", "newsletter", "notification@", "mailing", "webmaster@", "info-", "marketing", "promotions", "ne-pas-repondre", "nepas-repondre", "messagerievocale", "adhoc@info", "mailer-daemon", "postmaster", "bounce", "digest", "alerts@", "notify@", "updates@", "automated@", "system@", "donotreply"];
+    const nlSubjectPatterns = ["nouveautés", "nouveautes", "découvrez", "decouvrez", "offre spéciale", "promo", "security vulnerabilities", "unsubscribe", "désabonnement", "delivery notification", "message delivered", "votre message a été remis", "out of office", "absence du bureau", "auto-reply", "automatic reply", "confirmation de commande", "suivi de colis", "nouvelle connexion", "security alert", "digest", "weekly report", "monthly report", "récapitulatif"];
+    const nlBodyPatterns = ["unsubscribe", "désabonnement", "se désinscrire", "opt-out", "view in browser", "version en ligne", "préférences email", "manage your preferences", "this is an automated message", "ne pas répondre"];
 
     const isNL = nlAddressPatterns.some(kw => fe.includes(kw))
         || nlSubjectPatterns.some(kw => sl.includes(kw))
         || nlBodyPatterns.some(kw => bl.includes(kw));
 
-    const impWords = ["urgent", "devis", "alarme", "panne", "intervention", "contrat", "facture", "réclamation", "rappel"];
+    // Only flag as important if it contains strong business-relevant keywords AND is not a newsletter
+    const impWords = ["urgent", "devis", "alarme", "panne", "intervention", "réclamation", "rappel"];
     const isImp = !isNL && impWords.some(kw => sl.includes(kw) || bl.includes(kw));
 
     return {
         isNewsletter: isNL,
-        isImportant: isImp || !isNL,
+        isImportant: isImp,  // Default to NOT important — only important if strong signal
         needsReply: isImp,
         summary: subject || "Email sans objet",
         draftReply: null,
@@ -579,16 +606,10 @@ Deno.serve(async (req) => {
                         });
                     }
 
-                    // Notifications
+                    // Notifications — only for TRULY important emails
                     if (analysis.isNewsletter) {
                         totalNewsletters++;
-                        if (!knownSender || knownSender?.classification === 'pending') {
-                            await sendPush(db, `📰 Newsletter de ${email.fromName}`,
-                                `"${email.subject}" — Ouvrez l'app pour garder ou bloquer`,
-                                `newsletter-${email.uid}`, "/?action=emails");
-                            await db.from("email_messages").update({ notification_sent: true })
-                                .eq("account_email", account.email).eq("message_uid", email.uid || seqNum);
-                        }
+                        // NO push for newsletters — they are visible in-app
                     } else if (analysis.isImportant || analysis.needsReply) {
                         totalImportant++;
                         const emoji = analysis.needsReply ? "📧" : "📬";
