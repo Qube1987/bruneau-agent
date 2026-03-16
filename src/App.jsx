@@ -15,10 +15,10 @@ import LoginScreen from './components/LoginScreen';
 const SUGGESTIONS = [
   { icon: '\u{1F4C5}', text: 'Résume ma journée' },
   { icon: '\u{23F0}', text: 'Prochain RDV' },
+  { icon: '\u{1F514}', text: 'Rappelle-moi demain 8h d\'appeler le client' },
   { icon: '\u{1F4A1}', text: 'Je suis libre quand aujourd\'hui ?' },
   { icon: '\u{1F4CA}', text: 'Résume ma semaine' },
   { icon: '\u{1F527}', text: 'Crée un SAV pour M. Dupont, pile centrale HS' },
-  { icon: '\u{1F50D}', text: 'Cherche le client Lefebvre dans le CRM' },
 ];
 
 export default function App() {

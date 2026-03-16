@@ -153,6 +153,155 @@ async function tryDirectRdvCreation(text, token) {
 }
 
 /**
+ * Parse a natural-language task/reminder request and create it directly via Supabase.
+ * Handles: "rappelle-moi demain 8h d'appeler le client", "mets un rappel lundi 14h réunion",
+ *          "note une tâche pour vendredi: préparer devis", "ajoute une tâche appeler Dupont demain 9h", etc.
+ * Returns { success, message } or null if the message is not a task/reminder request.
+ */
+async function tryDirectTaskCreation(text) {
+    const lower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    // Detect reminder / task creation intent
+    const isReminder = /\b(rappel|rappelle|alarme|alerte|notifie|previens|remind)\b/.test(lower);
+    const isTask = /\b(ajoute|ajout|cree|note|mets|pose)\b/.test(lower)
+        && /\b(tache|task|todo|rappel)\b/.test(lower);
+
+    if (!isReminder && !isTask) return null;
+
+    // ── Extract time: "15h30", "15:30", "15 h 30", "15h", "8h" ──
+    const timeMatch = text.match(/(\d{1,2})\s*[h:]\s*(\d{2})?/);
+    let hour = null;
+    let min = '00';
+    if (timeMatch) {
+        hour = timeMatch[1].padStart(2, '0');
+        min = (timeMatch[2] || '00').padStart(2, '0');
+    }
+
+    // ── Extract date relative to NOW (French timezone) ──
+    const now = new Date();
+    const fr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Paris' }));
+    let targetDate = null;
+    let dayLabel = '';
+
+    if (/\bdemain\b/.test(lower)) {
+        targetDate = new Date(fr);
+        targetDate.setDate(targetDate.getDate() + 1);
+        dayLabel = 'demain';
+    } else if (/\bapres[- ]?demain\b/.test(lower)) {
+        targetDate = new Date(fr);
+        targetDate.setDate(targetDate.getDate() + 2);
+        dayLabel = 'après-demain';
+    } else if (/\baujourd'?hui\b/.test(lower) || /\bce (matin|soir|midi)\b/.test(lower)) {
+        targetDate = new Date(fr);
+        dayLabel = "aujourd'hui";
+    } else {
+        // Check for day names: "lundi", "mardi", etc.
+        const days = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+        const dayIdx = days.findIndex(d => lower.includes(d));
+        if (dayIdx >= 0) {
+            targetDate = new Date(fr);
+            let diff = dayIdx - fr.getDay();
+            if (diff <= 0) diff += 7;
+            targetDate.setDate(targetDate.getDate() + diff);
+            dayLabel = days[dayIdx];
+        }
+    }
+
+    // Check for explicit date: "le 15 mars", "le 15/03", "2026-03-15"
+    if (!targetDate) {
+        const isoDate = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (isoDate) {
+            targetDate = new Date(parseInt(isoDate[1]), parseInt(isoDate[2]) - 1, parseInt(isoDate[3]));
+            dayLabel = `${isoDate[3]}/${isoDate[2]}`;
+        }
+        const frDate = text.match(/(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?/);
+        if (!targetDate && frDate) {
+            const year = frDate[3] ? (frDate[3].length === 2 ? 2000 + parseInt(frDate[3]) : parseInt(frDate[3])) : fr.getFullYear();
+            targetDate = new Date(year, parseInt(frDate[2]) - 1, parseInt(frDate[1]));
+            dayLabel = `${frDate[1]}/${frDate[2]}`;
+        }
+    }
+
+    // If we have neither a date nor a time, we can't create a reminder
+    if (!targetDate && !hour) return null;
+
+    // Default: if no date, assume today; if no time, assume 9h
+    if (!targetDate) {
+        targetDate = new Date(fr);
+        dayLabel = "aujourd'hui";
+    }
+    if (!hour) {
+        hour = '09';
+        min = '00';
+    }
+
+    // ── Extract the task title / description ──
+    // Remove the trigger words, date words, and time to get the actual content
+    let title = text;
+    // Remove common prefixes
+    title = title.replace(/^(rappelle[- ]?moi|mets[- ]?(moi\s+)?un\s+rappel|ajoute\s+une?\s+tache|cree\s+une?\s+tache|note\s+une?\s+tache|mets\s+une?\s+tache)\s*/i, '');
+    // Remove date strings
+    title = title.replace(/\b(demain|aujourd'?hui|apres[- ]?demain|ce (matin|soir|midi)|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/gi, '');
+    // Remove time strings
+    title = title.replace(/\b\d{1,2}\s*[h:]\s*\d{0,2}\b/g, '');
+    // Remove explicit dates
+    title = title.replace(/\d{4}-\d{2}-\d{2}/g, '');
+    title = title.replace(/\d{1,2}[/.]\d{1,2}([/.]\d{2,4})?/g, '');
+    // Remove filler words
+    title = title.replace(/\b(a|à|de|d'|du|le|la|les|pour|que|qu'|un|une|vers|sur|dans)\b/gi, '');
+    // Clean up whitespace and punctuation
+    title = title.replace(/^\s*[,:;.!?-]+\s*/, '').replace(/\s*[,:;.!?-]+\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+
+    // If nothing left for a title, use a generic one
+    if (!title || title.length < 2) {
+        title = 'Rappel';
+    }
+    // Capitalize first letter
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+
+    // ── Build the due_date and reminder_at ──
+    const y = targetDate.getFullYear();
+    const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const d = String(targetDate.getDate()).padStart(2, '0');
+    const dueDateLocal = new Date(`${y}-${m}-${d}T${hour}:${min}:00`);
+    const dueDateISO = dueDateLocal.toISOString();
+    // For reminders, the reminder fires AT the specified time (not before)
+    const reminderAtISO = dueDateISO;
+
+    // ── Insert into Supabase ──
+    try {
+        const { data, error } = await supabase
+            .from('tasks')
+            .insert({
+                title,
+                description: '',
+                priority: 'medium',
+                category: 'general',
+                due_date: dueDateISO,
+                reminder_at: reminderAtISO,
+                reminder_sent: false,
+                status: 'pending',
+            })
+            .select()
+            .single();
+
+        if (error) {
+            console.error('[DirectTask] Insert error:', error);
+            return { success: false, message: `❌ Erreur création rappel: ${error.message}` };
+        }
+
+        const timeStr = `${hour}:${min}`;
+        return {
+            success: true,
+            message: `✅ Rappel créé : "${title}" ${dayLabel} à ${timeStr}. Tu recevras une notification push à l'heure prévue 🔔`,
+        };
+    } catch (e) {
+        console.error('[DirectTask] Error:', e);
+        return { success: false, message: `❌ Erreur: ${e.message}` };
+    }
+}
+
+/**
  * Message types:
  * - { role: 'user', content: string }
  * - { role: 'agent', content: string }
@@ -369,6 +518,22 @@ export function useAgent() {
                 };
                 addMessage(agentMsg);
                 conversationRef.current.push({ role: 'assistant', content: directResult.message });
+                setIsProcessing(false);
+                return;
+            }
+
+            // === DIRECT TASK/REMINDER CREATION: bypass Gemini for reminder requests ===
+            const taskResult = await tryDirectTaskCreation(text);
+            if (taskResult) {
+                removeThinking();
+                const agentMsg = {
+                    role: 'agent',
+                    type: taskResult.success ? 'success' : 'error',
+                    content: taskResult.message,
+                    id: Date.now().toString(),
+                };
+                addMessage(agentMsg);
+                conversationRef.current.push({ role: 'assistant', content: taskResult.message });
                 setIsProcessing(false);
                 return;
             }
