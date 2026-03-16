@@ -154,8 +154,13 @@ async function tryDirectRdvCreation(text, token) {
 
 /**
  * Parse a natural-language task/reminder request and create it directly via Supabase.
- * Handles: "rappelle-moi demain 8h d'appeler le client", "mets un rappel lundi 14h réunion",
- *          "note une tâche pour vendredi: préparer devis", "ajoute une tâche appeler Dupont demain 9h", etc.
+ * Handles:
+ *   - Relative: "rappelle-moi dans 5 minutes d'appeler Cindy"
+ *   - Relative: "rappelle-moi dans 1 heure"
+ *   - Relative: "rappelle-moi dans une demi-heure"
+ *   - Absolute: "rappelle-moi demain 8h d'appeler le client"
+ *   - Absolute: "mets un rappel lundi 14h réunion"
+ *   - Task: "ajoute une tâche appeler Dupont demain 9h"
  * Returns { success, message } or null if the message is not a task/reminder request.
  */
 async function tryDirectTaskCreation(text) {
@@ -168,107 +173,151 @@ async function tryDirectTaskCreation(text) {
 
     if (!isReminder && !isTask) return null;
 
-    // ── Extract time: "15h30", "15:30", "15 h 30", "15h", "8h" ──
-    const timeMatch = text.match(/(\d{1,2})\s*[h:]\s*(\d{2})?/);
-    let hour = null;
-    let min = '00';
-    if (timeMatch) {
-        hour = timeMatch[1].padStart(2, '0');
-        min = (timeMatch[2] || '00').padStart(2, '0');
-    }
-
-    // ── Extract date relative to NOW (French timezone) ──
     const now = new Date();
     const fr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Paris' }));
-    let targetDate = null;
+
+    let reminderDate = null;  // The exact Date when the reminder should fire
     let dayLabel = '';
+    let isRelative = false;   // "dans X minutes" mode vs absolute mode
 
-    if (/\bdemain\b/.test(lower)) {
-        targetDate = new Date(fr);
-        targetDate.setDate(targetDate.getDate() + 1);
-        dayLabel = 'demain';
-    } else if (/\bapres[- ]?demain\b/.test(lower)) {
-        targetDate = new Date(fr);
-        targetDate.setDate(targetDate.getDate() + 2);
-        dayLabel = 'après-demain';
-    } else if (/\baujourd'?hui\b/.test(lower) || /\bce (matin|soir|midi)\b/.test(lower)) {
-        targetDate = new Date(fr);
-        dayLabel = "aujourd'hui";
-    } else {
-        // Check for day names: "lundi", "mardi", etc.
-        const days = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
-        const dayIdx = days.findIndex(d => lower.includes(d));
-        if (dayIdx >= 0) {
+    // ══════════════════════════════════════════════════════
+    // 1) RELATIVE DURATION: "dans 5 minutes", "dans 1 heure", "dans une demi-heure"
+    // ══════════════════════════════════════════════════════
+    // "dans X min(utes)"
+    const relMinMatch = lower.match(/dans\s+(\d+)\s*(?:min(?:utes?)?|mn)/);
+    // "dans X heure(s)"
+    const relHourMatch = lower.match(/dans\s+(\d+)\s*(?:h(?:eure)?s?)\b/);
+    // "dans une heure"
+    const relUneHeureMatch = /dans\s+une?\s+heure/.test(lower);
+    // "dans une demi-heure" / "dans 30 min"
+    const relDemiHeureMatch = /dans\s+une?\s+demi[- ]?heure/.test(lower);
+    // "dans X heure(s) et Y min"
+    const relHourMinMatch = lower.match(/dans\s+(\d+)\s*h(?:eures?)?\s+(?:et\s+)?(\d+)\s*(?:min(?:utes?)?|mn)/);
+
+    if (relHourMinMatch) {
+        const offsetMs = (parseInt(relHourMinMatch[1]) * 60 + parseInt(relHourMinMatch[2])) * 60 * 1000;
+        reminderDate = new Date(now.getTime() + offsetMs);
+        dayLabel = `dans ${relHourMinMatch[1]}h${relHourMinMatch[2]}`;
+        isRelative = true;
+    } else if (relDemiHeureMatch) {
+        reminderDate = new Date(now.getTime() + 30 * 60 * 1000);
+        dayLabel = 'dans 30 minutes';
+        isRelative = true;
+    } else if (relMinMatch) {
+        const minutes = parseInt(relMinMatch[1]);
+        reminderDate = new Date(now.getTime() + minutes * 60 * 1000);
+        dayLabel = `dans ${minutes} minute${minutes > 1 ? 's' : ''}`;
+        isRelative = true;
+    } else if (relUneHeureMatch) {
+        reminderDate = new Date(now.getTime() + 60 * 60 * 1000);
+        dayLabel = 'dans 1 heure';
+        isRelative = true;
+    } else if (relHourMatch) {
+        const hours = parseInt(relHourMatch[1]);
+        reminderDate = new Date(now.getTime() + hours * 60 * 60 * 1000);
+        dayLabel = `dans ${hours} heure${hours > 1 ? 's' : ''}`;
+        isRelative = true;
+    }
+
+    // ══════════════════════════════════════════════════════
+    // 2) ABSOLUTE DATE + TIME: "demain 8h", "lundi 14h30", etc.
+    // ══════════════════════════════════════════════════════
+    if (!isRelative) {
+        // Extract time: "15h30", "15:30", "15 h 30", "15h", "8h"
+        const timeMatch = text.match(/(\d{1,2})\s*[h:]\s*(\d{2})?/);
+        let hour = null;
+        let minute = '00';
+        if (timeMatch) {
+            hour = timeMatch[1].padStart(2, '0');
+            minute = (timeMatch[2] || '00').padStart(2, '0');
+        }
+
+        // Extract date
+        let targetDate = null;
+
+        if (/\bdemain\b/.test(lower)) {
             targetDate = new Date(fr);
-            let diff = dayIdx - fr.getDay();
-            if (diff <= 0) diff += 7;
-            targetDate.setDate(targetDate.getDate() + diff);
-            dayLabel = days[dayIdx];
+            targetDate.setDate(targetDate.getDate() + 1);
+            dayLabel = 'demain';
+        } else if (/\bapres[- ]?demain\b/.test(lower)) {
+            targetDate = new Date(fr);
+            targetDate.setDate(targetDate.getDate() + 2);
+            dayLabel = 'après-demain';
+        } else if (/\baujourd'?hui\b/.test(lower) || /\bce (matin|soir|midi)\b/.test(lower)) {
+            targetDate = new Date(fr);
+            dayLabel = "aujourd'hui";
+        } else {
+            const days = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+            const dayIdx = days.findIndex(d => lower.includes(d));
+            if (dayIdx >= 0) {
+                targetDate = new Date(fr);
+                let diff = dayIdx - fr.getDay();
+                if (diff <= 0) diff += 7;
+                targetDate.setDate(targetDate.getDate() + diff);
+                dayLabel = days[dayIdx];
+            }
         }
-    }
 
-    // Check for explicit date: "le 15 mars", "le 15/03", "2026-03-15"
-    if (!targetDate) {
-        const isoDate = text.match(/(\d{4})-(\d{2})-(\d{2})/);
-        if (isoDate) {
-            targetDate = new Date(parseInt(isoDate[1]), parseInt(isoDate[2]) - 1, parseInt(isoDate[3]));
-            dayLabel = `${isoDate[3]}/${isoDate[2]}`;
+        // Check explicit dates: "2026-03-15", "15/03"
+        if (!targetDate) {
+            const isoDate = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (isoDate) {
+                targetDate = new Date(parseInt(isoDate[1]), parseInt(isoDate[2]) - 1, parseInt(isoDate[3]));
+                dayLabel = `${isoDate[3]}/${isoDate[2]}`;
+            }
+            const frDate = text.match(/(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?/);
+            if (!targetDate && frDate) {
+                const year = frDate[3] ? (frDate[3].length === 2 ? 2000 + parseInt(frDate[3]) : parseInt(frDate[3])) : fr.getFullYear();
+                targetDate = new Date(year, parseInt(frDate[2]) - 1, parseInt(frDate[1]));
+                dayLabel = `${frDate[1]}/${frDate[2]}`;
+            }
         }
-        const frDate = text.match(/(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?/);
-        if (!targetDate && frDate) {
-            const year = frDate[3] ? (frDate[3].length === 2 ? 2000 + parseInt(frDate[3]) : parseInt(frDate[3])) : fr.getFullYear();
-            targetDate = new Date(year, parseInt(frDate[2]) - 1, parseInt(frDate[1]));
-            dayLabel = `${frDate[1]}/${frDate[2]}`;
-        }
+
+        // If we have neither a date nor a time, we can't create a reminder
+        if (!targetDate && !hour) return null;
+
+        // Defaults
+        if (!targetDate) { targetDate = new Date(fr); dayLabel = "aujourd'hui"; }
+        if (!hour) { hour = '09'; minute = '00'; }
+
+        const y = targetDate.getFullYear();
+        const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const d = String(targetDate.getDate()).padStart(2, '0');
+        reminderDate = new Date(`${y}-${m}-${d}T${hour}:${minute}:00`);
+        dayLabel = `${dayLabel} à ${hour}:${minute}`;
     }
 
-    // If we have neither a date nor a time, we can't create a reminder
-    if (!targetDate && !hour) return null;
-
-    // Default: if no date, assume today; if no time, assume 9h
-    if (!targetDate) {
-        targetDate = new Date(fr);
-        dayLabel = "aujourd'hui";
-    }
-    if (!hour) {
-        hour = '09';
-        min = '00';
-    }
-
-    // ── Extract the task title / description ──
-    // Remove the trigger words, date words, and time to get the actual content
+    // ══════════════════════════════════════════════════════
+    // 3) EXTRACT TITLE
+    // ══════════════════════════════════════════════════════
     let title = text;
-    // Remove common prefixes
-    title = title.replace(/^(rappelle[- ]?moi|mets[- ]?(moi\s+)?un\s+rappel|ajoute\s+une?\s+tache|cree\s+une?\s+tache|note\s+une?\s+tache|mets\s+une?\s+tache)\s*/i, '');
+    // Remove trigger prefixes
+    title = title.replace(/^(rappelle[- ]?moi|mets[- ]?(moi\s+)?un\s+rappel|ajoute\s+une?\s+t[aâ]che|cree\s+une?\s+t[aâ]che|note\s+une?\s+t[aâ]che|mets\s+une?\s+t[aâ]che)\s*/i, '');
+    // Remove relative duration phrases
+    title = title.replace(/\bdans\s+\d+\s*(?:min(?:utes?)?|mn|h(?:eures?)?s?)\b/gi, '');
+    title = title.replace(/\bdans\s+une?\s+(?:demi[- ]?)?heure\b/gi, '');
+    title = title.replace(/\bdans\s+\d+\s*h(?:eures?)?\s+(?:et\s+)?\d+\s*(?:min(?:utes?)?|mn)\b/gi, '');
     // Remove date strings
-    title = title.replace(/\b(demain|aujourd'?hui|apres[- ]?demain|ce (matin|soir|midi)|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/gi, '');
-    // Remove time strings
+    title = title.replace(/\b(demain|aujourd'?hui|apr[eè]s[- ]?demain|ce (matin|soir|midi)|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/gi, '');
+    // Remove time strings (8h, 14h30, etc.)
     title = title.replace(/\b\d{1,2}\s*[h:]\s*\d{0,2}\b/g, '');
     // Remove explicit dates
     title = title.replace(/\d{4}-\d{2}-\d{2}/g, '');
     title = title.replace(/\d{1,2}[/.]\d{1,2}([/.]\d{2,4})?/g, '');
-    // Remove filler words
+    // Remove filler words (keep meaningful ones)
     title = title.replace(/\b(a|à|de|d'|du|le|la|les|pour|que|qu'|un|une|vers|sur|dans)\b/gi, '');
-    // Clean up whitespace and punctuation
+    // Clean up
     title = title.replace(/^\s*[,:;.!?-]+\s*/, '').replace(/\s*[,:;.!?-]+\s*$/, '').replace(/\s{2,}/g, ' ').trim();
 
-    // If nothing left for a title, use a generic one
-    if (!title || title.length < 2) {
-        title = 'Rappel';
-    }
-    // Capitalize first letter
+    if (!title || title.length < 2) title = 'Rappel';
     title = title.charAt(0).toUpperCase() + title.slice(1);
 
-    // ── Build the due_date and reminder_at ──
-    const y = targetDate.getFullYear();
-    const m = String(targetDate.getMonth() + 1).padStart(2, '0');
-    const d = String(targetDate.getDate()).padStart(2, '0');
-    const dueDateLocal = new Date(`${y}-${m}-${d}T${hour}:${min}:00`);
-    const dueDateISO = dueDateLocal.toISOString();
-    // For reminders, the reminder fires AT the specified time (not before)
+    // ══════════════════════════════════════════════════════
+    // 4) CREATE TASK IN SUPABASE
+    // ══════════════════════════════════════════════════════
+    const dueDateISO = reminderDate.toISOString();
     const reminderAtISO = dueDateISO;
 
-    // ── Insert into Supabase ──
     try {
         const { data, error } = await supabase
             .from('tasks')
@@ -290,10 +339,15 @@ async function tryDirectTaskCreation(text) {
             return { success: false, message: `❌ Erreur création rappel: ${error.message}` };
         }
 
-        const timeStr = `${hour}:${min}`;
+        // Format the confirmation message
+        const reminderTime = reminderDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
+        const confirmLabel = isRelative
+            ? `${dayLabel} (à ${reminderTime})`
+            : dayLabel;
+
         return {
             success: true,
-            message: `✅ Rappel créé : "${title}" ${dayLabel} à ${timeStr}. Tu recevras une notification push à l'heure prévue 🔔`,
+            message: `✅ Rappel créé : "${title}" — ${confirmLabel}. Tu recevras une notification push 🔔`,
         };
     } catch (e) {
         console.error('[DirectTask] Error:', e);
