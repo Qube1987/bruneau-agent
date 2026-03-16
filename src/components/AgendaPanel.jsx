@@ -7,6 +7,7 @@ import {
     isSameDay, formatDateYMD, pad2, getWeekStart,
     DAYS_FR_SHORT, MONTHS_FR,
 } from '../utils/agendaUtils';
+import { extractBestPhone } from '../utils/phoneUtils';
 
 const TEAM_MEMBERS = [
     { name: 'Quentin', code: '46516', color: '#6c5ce7' },
@@ -98,18 +99,7 @@ function parseRawApts(rawData, userCode, member) {
                 _start: start,
                 _end: end,
                 _address: extractAddr(apt.lieu) || extractAddr(apt.adresse) || extractAddr(apt.address) || '',
-                _phone: (() => {
-                    const client = apt.clients?.[0] || apt.client || null;
-                    const p = client?.telephones?.[0]?.number
-                        || client?.telephones?.[0]?.numero
-                        || client?.telephone
-                        || client?.mobile
-                        || client?.portable
-                        || apt.telephone
-                        || apt.phone
-                        || '';
-                    return typeof p === 'string' ? p : '';
-                })(),
+                _phone: extractBestPhone(apt.clients?.[0] || apt.client || null, apt),
             });
         }
     });

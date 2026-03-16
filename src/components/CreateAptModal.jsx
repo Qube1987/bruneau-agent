@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { extractBestPhone } from '../utils/phoneUtils';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://rzxisqsdsiiuwaixnneo.supabase.co';
 const PROXY_URL = `${SUPABASE_URL}/functions/v1/extrabat-proxy`;
@@ -159,7 +160,7 @@ export default function CreateAptModal({ onClose, userCode }) {
                         const firstAddr = c.adresses?.[0] || {};
                         const addr = [firstAddr.description || firstAddr.adresse || firstAddr.rue || '',
                         firstAddr.codePostal || '', firstAddr.ville || ''].filter(Boolean).join(', ');
-                        const phone = c.telephones?.[0]?.number || c.telephones?.[0]?.numero || c.telephone || '';
+                        const phone = extractBestPhone(c, null);
                         const fullName = [c.prenom, c.nom].filter(Boolean).join(' ') || c.raisonSociale || '';
 
                         results.push({

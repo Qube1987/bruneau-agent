@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { extractBestPhone } from '../utils/phoneUtils';
 
 /**
  * RdvConfirmList — Shows tomorrow's appointments with SMS confirmation buttons.
@@ -67,18 +68,8 @@ export default function RdvConfirmList({ onClose }) {
                         const clientName = client
                             ? `${client.prenom || ''} ${client.nom || ''}`.trim() || client.raisonSociale || ''
                             : '';
-                        // Try all possible phone field names from Extrabat API
-                        const phone = client?.telephones?.[0]?.number
-                            || client?.telephones?.[0]?.numero
-                            || client?.telephone
-                            || client?.mobile
-                            || client?.portable
-                            || client?.tel
-                            || client?.telPortable
-                            || client?.telMobile
-                            || apt.telephone
-                            || apt.phone
-                            || '';
+                        // Extract best phone (prioritize mobile 06/07)
+                        const phone = extractBestPhone(client, apt);
 
                         return {
                             id: apt.id,
