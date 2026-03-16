@@ -43,7 +43,7 @@ export default function RdvConfirmList({ onClose }) {
                     params: {
                         date_debut: dateStr,
                         date_fin: dateStr,
-                        include: 'client',
+                        include: 'client,telephone',
                     },
                 }),
             });
@@ -53,16 +53,32 @@ export default function RdvConfirmList({ onClose }) {
             if (result.success && result.data) {
                 const rdvs = Array.isArray(result.data) ? result.data : Object.values(result.data);
 
+                // Debug: log first appointment to see client data structure
+                if (rdvs.length > 0) {
+                    console.log('[RdvConfirmList] Sample appointment:', JSON.stringify(rdvs[0], null, 2));
+                }
+
                 // Format and sort appointments
                 const formatted = rdvs
                     .map((apt) => {
                         const debut = new Date(apt.debut);
                         const fin = new Date(apt.fin);
-                        const client = apt.clients?.[0] || null;
+                        const client = apt.clients?.[0] || apt.client || null;
                         const clientName = client
                             ? `${client.prenom || ''} ${client.nom || ''}`.trim() || client.raisonSociale || ''
                             : '';
-                        const phone = client?.telephones?.[0]?.number || client?.telephones?.[0]?.numero || '';
+                        // Try all possible phone field names from Extrabat API
+                        const phone = client?.telephones?.[0]?.number
+                            || client?.telephones?.[0]?.numero
+                            || client?.telephone
+                            || client?.mobile
+                            || client?.portable
+                            || client?.tel
+                            || client?.telPortable
+                            || client?.telMobile
+                            || apt.telephone
+                            || apt.phone
+                            || '';
 
                         return {
                             id: apt.id,

@@ -99,7 +99,15 @@ function parseRawApts(rawData, userCode, member) {
                 _end: end,
                 _address: extractAddr(apt.lieu) || extractAddr(apt.adresse) || extractAddr(apt.address) || '',
                 _phone: (() => {
-                    const p = apt.telephone || apt.phone || '';
+                    const client = apt.clients?.[0] || apt.client || null;
+                    const p = client?.telephones?.[0]?.number
+                        || client?.telephones?.[0]?.numero
+                        || client?.telephone
+                        || client?.mobile
+                        || client?.portable
+                        || apt.telephone
+                        || apt.phone
+                        || '';
                     return typeof p === 'string' ? p : '';
                 })(),
             });
@@ -189,7 +197,7 @@ const AgendaPanel = forwardRef(function AgendaPanel({ onDataReady, userCode, use
                             body: {
                                 endpoint: `utilisateur/${member.code}/rendez-vous`,
                                 apiVersion: 'v1',
-                                params: { date_debut: startStr, date_fin: endStr, include: 'client' },
+                                params: { date_debut: startStr, date_fin: endStr, include: 'client,telephone' },
                             },
                         });
                         if (resp.data?.success && resp.data.data) {
