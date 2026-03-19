@@ -209,6 +209,13 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.header__brand:hover .header__logo {
+  transform: scale(1.1);
+  box-shadow: 0 0 24px var(--accent-glow);
 }
 
 .header__logo {
@@ -222,6 +229,7 @@ body {
   font-size: 22px;
   box-shadow: 0 0 16px var(--accent-glow);
   flex-shrink: 0;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .header__title {

@@ -149,7 +149,7 @@ export default function App() {
     <div className="app" onClick={() => showUserMenu && setShowUserMenu(false)}>
       {/* Header */}
       <header className="header">
-        <div className="header__brand">
+        <div className="header__brand" onClick={() => { clearConversation(); setInputText(''); setShowMyDay(false); setShowRdvConfirm(false); setShowEmails(false); }} title="Retour à l'accueil">
           <div className="header__logo">🤖</div>
         </div>
         <div className="header__actions">
