@@ -91,6 +91,18 @@ RÈGLES IMPORTANTES :
 - Pour check_stock, passe la requête telle quelle (ex: "centrales ajax", "détecteurs daitem", "batterie"). La recherche est intelligente et cherche dans le nom du produit, la marque, le fournisseur, les catégories et sous-catégories du stock, et les descriptions du catalogue produits.
 - Le stock est organisé en catégories (ex: "Alarme Ajax Jeweller", "Vidéosurveillance") et sous-catégories (ex: "Centrales", "Détecteurs", "Sirènes")
 
+RAPPELS / TÂCHES (TODO) :
+- CRITIQUE : Quand l'utilisateur dit "rappelle-moi", "mets un rappel", "rappelle moi", "n'oublie pas de", ou des variantes comme "faut que je pense à", c'est TOUJOURS une TÂCHE TODO avec rappel, PAS un rendez-vous dans l'agenda.
+- Utilise TOUJOURS create_task pour les rappels et tâches, JAMAIS create_appointment.
+- Exemples de rappels → create_task :
+  - "rappelle-moi à 9h30 d'appeler le client" → create_task({title: "Appeler le client", reminder_at: "2026-03-19T09:30:00"})
+  - "rappelle-moi demain de commander des piles" → create_task({title: "Commander des piles", reminder_at: "2026-03-20T09:00:00"})
+  - "mets un rappel lundi 14h réunion" → create_task({title: "Réunion", reminder_at: "2026-03-23T14:00:00"})
+  - "n'oublie pas de rappeler Dupont" → create_task({title: "Rappeler Dupont", reminder_at: dans 1 heure})
+- Si l'utilisateur ne précise pas d'heure, mettre 09:00 par défaut
+- Si l'utilisateur ne précise pas de date, mettre aujourd'hui
+- La date/heure actuelle est fournie dans le contexte. Utilise-la pour calculer les dates relatives.
+
 AGENDA / RENDEZ-VOUS :
 - L'agenda est géré via l'API Extrabat. Chaque utilisateur a un code Extrabat lié.
 - Correspondance des membres de l'équipe : Quentin (46516), Paul (218599), Cindy (47191), Téo (485533)
@@ -99,6 +111,7 @@ AGENDA / RENDEZ-VOUS :
 - Pour les dates : "demain" = jour suivant, "lundi prochain" = prochain lundi, "cet après-midi" = aujourd'hui 14:00-18:00, "cette semaine" = du lundi au vendredi de la semaine courante
 - La date/heure actuelle est fournie dans le contexte. Utilise-la pour calculer les dates relatives.
 - CRÉER UN RDV = OBLIGATOIREMENT appeler create_appointment (function call). Ne JAMAIS répondre en texte que le RDV est créé sans function call.
+- IMPORTANT : "rappelle-moi" et "mets un rappel" ne sont PAS des RDV ! Utilise create_task pour ceux-là.
 - Pour les RDV, le format de date est TOUJOURS "YYYY-MM-DD HH:MM:SS" (avec espace, PAS de T)
 - Si l'utilisateur ne précise pas la durée, mettre 1h par défaut (fin = debut + 1h)
 - Si l'utilisateur ne précise pas de nom, c'est pour Quentin (défaut)
@@ -481,6 +494,23 @@ const TOOLS = [
                 body: { type: "STRING", description: "Contenu de l'email" },
             },
             required: ["recipient_name", "subject", "body"],
+        },
+    },
+
+    // ===== TASKS / REMINDERS =====
+    {
+        name: "create_task",
+        description: "Créer une tâche / rappel dans la todo list. Utilise cet outil quand l'utilisateur dit 'rappelle-moi', 'mets un rappel', 'n'oublie pas de', 'ajoute une tâche'. NE PAS utiliser create_appointment pour les rappels.",
+        parameters: {
+            type: "OBJECT",
+            properties: {
+                title: { type: "STRING", description: "Titre de la tâche / rappel" },
+                description: { type: "STRING", description: "Description détaillée (optionnel)" },
+                reminder_at: { type: "STRING", description: "Date et heure du rappel au format ISO 8601 (ex: 2026-03-19T09:30:00). Si pas d'heure précisée, mettre 09:00." },
+                priority: { type: "STRING", description: "Priorité : low, medium, high (défaut: medium)" },
+                category: { type: "STRING", description: "Catégorie : general, client, admin (défaut: general)" },
+            },
+            required: ["title", "reminder_at"],
         },
     },
 
@@ -1525,6 +1555,39 @@ async function executeTool(toolName: string, args: any): Promise<any> {
             return {
                 success: true,
                 message: `Rendez-vous ${args.appointment_id} supprimé`,
+            };
+        }
+
+        // ===== CREATE TASK / REMINDER =====
+        case "create_task": {
+            const reminderAt = args.reminder_at || new Date().toISOString();
+            const taskInsert = {
+                title: args.title || "Rappel",
+                description: args.description || "",
+                priority: args.priority || "medium",
+                category: args.category || "general",
+                due_date: reminderAt,
+                reminder_at: reminderAt,
+                reminder_sent: false,
+                status: "pending",
+            };
+
+            const { data: taskData, error: taskError } = await db.from("tasks")
+                .insert(taskInsert)
+                .select()
+                .single();
+
+            if (taskError) return { error: taskError.message };
+
+            // Format time for display
+            const rDate = new Date(reminderAt);
+            const rTime = rDate.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" });
+            const rDay = rDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Paris" });
+
+            return {
+                success: true,
+                message: `Rappel créé : "${args.title}" — ${rDay} à ${rTime}. Tu recevras une notification push 🔔`,
+                task: taskData,
             };
         }
 

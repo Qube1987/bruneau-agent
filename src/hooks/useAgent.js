@@ -166,8 +166,11 @@ async function tryDirectRdvCreation(text, token) {
 async function tryDirectTaskCreation(text) {
     const lower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-    // Detect reminder / task creation intent
-    const isReminder = /\b(rappel|rappelle|alarme|alerte|notifie|previens|remind)\b/.test(lower);
+    // Detect reminder / task creation intent (broad coverage for vocal transcription variants)
+    const isReminder = /\b(rappel|rappelle|rappeler|alarme|alerte|notifie|previens|remind)\b/.test(lower)
+        || /n'?oublie\s*pas/.test(lower)
+        || /faut\s+que\s+je\s+pense/.test(lower)
+        || /pense\s*a\s+(rappeler|appeler|faire|envoyer|commander|verifier)/.test(lower);
     const isTask = /\b(ajoute|ajout|cree|note|mets|pose)\b/.test(lower)
         && /\b(tache|task|todo|rappel)\b/.test(lower);
 
